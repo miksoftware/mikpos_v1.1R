@@ -1,0 +1,497 @@
+# MikPOS - Project Structure
+
+Root application is in the workspace root directory.
+
+## Key Directories
+
+```
+/
+├── app/
+│   ├── Console/Commands/    # Custom Artisan commands
+│   ├── Http/Controllers/    # Traditional controllers (minimal use)
+│   ├── Http/Middleware/     # Custom middleware (CheckPermission, CheckInstallation)
+│   ├── Livewire/            # Livewire components (primary UI logic)
+│   │   ├── Auth/            # Authentication components
+│   │   ├── Nomina/          # Payroll components (Employees, Payrolls)
+│   │   └── Reports/         # Report components
+│   ├── Models/              # Eloquent models
+│   ├── Providers/           # Service providers
+│   ├── Services/            # Business logic services
+│   └── View/Components/     # Blade view components
+├── config/                  # Laravel configuration files
+├── database/
+│   ├── migrations/          # Database migrations
+│   ├── seeders/             # Database seeders
+│   └── factories/           # Model factories for testing
+├── resources/
+│   ├── css/                 # Tailwind CSS entry point
+│   ├── js/                  # JavaScript entry point
+│   └── views/
+│       ├── components/      # Reusable Blade components
+│       ├── layouts/         # Layout templates (app.blade.php, guest.blade.php)
+│       ├── livewire/        # Livewire component views
+│       │   ├── nomina/      # Payroll views
+│       │   └── reports/     # Report views
+│       └── receipts/        # Printable receipts (thermal 80mm, letter)
+├── routes/
+│   └── web.php              # Web routes (Livewire components as routes)
+```
+
+## Current Livewire Components
+
+### Authentication
+- **Auth/Login** - User authentication
+
+### Administration
+- **Users** - User management with role assignment
+- **Branches** - Multi-branch management
+- **Roles** - Role and permission management
+- **ActivityLogs** - Activity log viewer with filters (user, branch, module, action, dates)
+
+### Configuration
+- **BillingSettings** - Electronic invoicing configuration (Factus/DIAN)
+- **Departments** - Geographic departments
+- **Municipalities** - Geographic municipalities
+- **TaxDocuments** - Tax document types
+- **Currencies** - Currency management
+- **PaymentMethods** - Payment methods
+- **Taxes** - Tax rates
+- **SystemDocuments** - System document types
+- **ProductFieldConfig** - Product field configuration
+- **PrintFormats** - Print format configuration (thermal/letter per document type)
+
+### Product Catalog
+- **Categories** - Product categories
+- **Subcategories** - Product subcategories
+- **Brands** - Product brands
+- **Units** - Units of measurement
+- **ProductModels** - Product models
+- **Presentations** - Product presentations
+- **Colors** - Product colors
+- **Imeis** - IMEI management
+
+### Cash Management
+- **CashRegisters** - Cash register creation and management
+- **CashReconciliations** - Cash reconciliations (arqueos) with movements, edit history
+
+### Point of Sale
+- **PointOfSale** - Full POS interface with barcode scanning, customer search/creation
+- **Sales** - Sales listing with refunds, credit notes, and cancel & replicate
+
+### Creation/Catalog
+- **Products** - Product management with variants and composite products (ingredients)
+- **Services** - Service management (no inventory)
+- **Customers** - Customer management
+- **Suppliers** - Supplier management
+- **Combos** - Combo products
+- **Credits** - Credit/payment management
+- **Discounts** - Predefined discounts (percentage/fixed, global/specific products)
+- **Expenses** - Business expense tracking with payment method and contact
+- **Ingredients** - Ingredient management with groups (two tabs: ingredients and groups)
+
+### Restaurant
+- **ZonesAndTables** - Zone and table management (two tabs: zones and tables)
+- **Reception** - Visual table status map per zone (available/occupied/reserved)
+
+### Inventory
+- **Purchases** - Purchase order listing and payment control
+- **PurchaseCreate** - Purchase order creation with inline discounts
+- **InventoryAdjustments** - Inventory adjustments
+- **InventoryTransfers** - Inventory transfers between branches
+
+### Payroll (Nómina)
+- **Nomina/Employees** - Employee management with contract and salary configuration
+- **Nomina/Payrolls** - Payroll period management with calculation, approval, and payment
+
+### Reports
+- **Reports/SalesBook** - Complete sales book report
+- **Reports/ProductsSold** - Products sold report with filters
+- **Reports/Commissions** - Sales commissions report
+- **Reports/ProfitLoss** - Profit and loss report
+- **Reports/CreditsReport** - Credits/receivables report
+- **Reports/PurchasesReport** - Purchases report (7 tabs, 3 charts)
+- **Reports/CashReport** - Cash report (arqueos, movements, consolidated)
+- **Reports/PaymentMethodsReport** - Payment methods report (summary, detail, by user)
+- **Reports/Kardex** - Inventory kardex report
+
+### Tools
+- **Migration** - Legacy data import from SQL files
+
+## Current Models
+
+### Core
+- User, Role, Permission, Module
+- Branch, ActivityLog
+
+### Geographic
+- Department, Municipality
+
+### Configuration
+- BillingSetting, TaxDocument, Currency, PaymentMethod, Tax
+- SystemDocument, ProductFieldSetting, PrintFormatSetting
+
+### Product Catalog
+- Category, Subcategory, Brand, Unit
+- ProductModel, Presentation, Color, Imei
+- Product, ProductChild, ProductBarcode
+
+### Ingredients & Composite Products
+- Ingredient, IngredientGroup, IngredientGroupOption
+- ProductIngredient, ProductIngredientGroup
+
+### Services
+- Service
+
+### Restaurant
+- Zone, RestaurantTable
+
+### Cash Management
+- CashRegister, CashReconciliation, CashReconciliationEdit, CashMovement
+
+### Sales & Transactions
+- Sale, SaleItem, SalePayment, SaleReprint
+- Customer, Supplier
+- Combo, ComboItem
+- Purchase, PurchaseItem
+- CreditPayment, CreditNote, CreditNoteItem
+- Refund, RefundItem
+- InventoryMovement
+- Discount, Expense
+
+### Payroll (Nómina)
+- Employee, EmployeeLoan
+- Payroll, PayrollDetail, PayrollAdjustment
+
+## Database Tables
+
+### Core
+- users, roles, permissions, modules
+- user_role (pivot), permission_role (pivot)
+- branches, activity_logs
+
+### Geographic
+- departments, municipalities
+
+### Configuration
+- billing_settings, tax_documents, currencies, payment_methods, taxes
+- system_documents, product_field_settings, print_format_settings
+
+### Product Catalog
+- categories, subcategories, brands, units
+- product_models, presentations, colors, imeis
+- products, product_children, product_barcodes
+
+### Ingredients & Composite Products
+- ingredients, ingredient_groups, ingredient_group_options
+- product_ingredients (pivot: product ↔ ingredient)
+- product_ingredient_groups (pivot: product ↔ ingredient_group)
+
+### Services
+- services
+
+### Restaurant
+- zones, restaurant_tables
+
+### Cash Management
+- cash_registers, cash_reconciliations, cash_reconciliation_edits, cash_movements
+
+### Sales & Transactions
+- sales, sale_items, sale_payments, sale_reprints
+- customers, suppliers
+- combos, combo_items
+- purchases, purchase_items
+- credit_payments, credit_notes, credit_note_items
+- refunds, refund_items
+- inventory_movements
+- discounts, discount_product (pivot)
+- expenses
+- seeder_history (deployment tracking)
+
+### Payroll (Nómina)
+- employees, employee_loans
+- payrolls, payroll_details, payroll_adjustments
+
+## Conventions
+
+### Livewire Components
+- Full-page components use `#[Layout('layouts.app')]` attribute
+- Guest pages use `#[Layout('layouts.guest')]` attribute
+- Views in `resources/views/livewire/` mirror component namespace
+- Use Livewire attributes for validation: `#[Rule('required|min:3')]`
+- Follow CRUD pattern: create(), edit(), store(), delete(), toggleStatus()
+
+### Models
+- Located in `app/Models/`
+- Use `$fillable` for mass assignment protection
+- Use `$casts` for attribute casting (especially boolean fields)
+- Define relationships as methods
+- Follow Laravel naming conventions
+
+### Views
+- Blade templates with Tailwind CSS classes
+- Modals rendered inline within Livewire components
+- Use `wire:` directives for Livewire bindings
+- Use `x-data`, `x-show`, `@click` for Alpine.js interactivity
+- Consistent UI patterns across all modules
+
+### Reusable Blade Components
+
+#### Searchable Select (`x-searchable-select`)
+Select con buscador usando Alpine.js puro y Tailwind CSS. Compatible con Livewire.
+
+**Ubicación:** `resources/views/components/searchable-select.blade.php`
+
+**Props:**
+- `options` - Array de objetos `[{id: 1, name: 'Texto'}, ...]`
+- `placeholder` - Texto cuando no hay selección (default: 'Seleccionar...')
+- `searchPlaceholder` - Texto en el input de búsqueda (default: 'Buscar...')
+- `displayKey` - Clave para mostrar (default: 'name')
+- `valueKey` - Clave para el valor (default: 'id')
+- `disabled` - Estado deshabilitado (default: false)
+
+**Uso:**
+```blade
+<x-searchable-select
+    wire:model="department_id"
+    :options="$departments->map(fn($d) => ['id' => $d->id, 'name' => $d->name])->toArray()"
+    placeholder="Seleccionar departamento..."
+    searchPlaceholder="Buscar departamento..."
+/>
+```
+
+**IMPORTANTE:** NO usar jQuery ni librerías externas. Solo Alpine.js (incluido con Livewire) y Tailwind CSS.
+
+### Notifications
+- Use `$this->dispatch('notify', message: 'Message', type: 'success')` in Livewire
+- Types: success, error, warning, info
+- Toast component in `resources/views/components/toast.blade.php`
+
+### Activity Logging
+- Use `ActivityLogService::logCreate/logUpdate/logDelete()` for CRUD operations
+- **IMPORTANT**: Must pass Eloquent Model instance, not stdClass
+- Logs stored in `activity_logs` table with old/new values
+- Automatic logging for all entity changes
+
+### Routing
+- Livewire components registered directly as routes in `routes/web.php`
+- Protected routes use `auth` middleware
+- Permission-based route protection: `middleware('permission:module.view')`
+- Guest routes use `guest` middleware
+
+### Menu Structure (Sidebar)
+Located in `resources/views/components/sidebar-menu.blade.php`
+
+```
+Dashboard
+Recepción
+POS
+Cajas (independent section)
+├── Creación de Cajas
+└── Arqueos de Caja
+Administración
+├── Usuarios
+├── Sucursales
+├── Roles
+├── Logs de Actividad
+├── Zonas y Mesas
+└── Configuración
+    ├── Departamentos
+    ├── Municipios
+    ├── Documentos Tributarios
+    ├── Monedas
+    ├── Métodos de Pago
+    ├── Impuestos
+    ├── Documentos Sistema
+    ├── Config. Campos Producto
+    ├── Formatos de Impresión
+    └── Productos
+        ├── Categorías
+        ├── Subcategorías
+        ├── Marcas
+        ├── Unidades
+        ├── Modelos
+        ├── Presentaciones
+        ├── Colores
+        └── IMEIs
+Creación
+├── Productos
+├── Servicios
+├── Clientes
+├── Proveedores
+├── Combos
+├── Descuentos
+└── Ingredientes
+Gastos
+Inventarios
+├── Compras
+├── Ajustes Inventario
+└── Transferencias
+Nómina
+├── Empleados
+└── Períodos de Nómina
+Reportes
+├── Ventas
+│   ├── Libro de Ventas
+│   ├── Productos Vendidos
+│   ├── Comisiones
+│   ├── Utilidades
+│   ├── Créditos
+│   ├── Compras
+│   ├── Cajas
+│   └── Métodos de Pago
+└── Inventario
+    └── Kardex
+Migración
+```
+
+
+## Console Commands
+
+### Custom Artisan Commands
+Located in `app/Console/Commands/`
+
+- **SeedPending** (`db:seed-pending`) - Run only new/pending seeders
+- **SeedMarkExecuted** (`db:seed-mark-executed`) - Mark seeders as already executed
+- **FixUtcDates** (`fix:utc-dates`) - Convert UTC dates to America/Bogota timezone
+- **FixExistingRefunds** (`fix:existing-refunds`) - Fix inventory for existing refunds
+- **FixCreditSalesWithRefunds** (`fix:credit-sales`) - Fix credit sales with refunds/credit notes still showing in credits (supports `--dry-run`)
+- **GenerateSaleInventoryMovements** - Generate missing sale inventory movements
+- **ImportLegacyData** (`migration:import`) - Import legacy SQL data into the system
+- **CleanMigrationData** - Clean imported migration data
+
+### Common Commands
+
+```bash
+# Development
+composer dev              # Start dev server
+npm run build            # Build assets
+
+# Database
+php artisan migrate                    # Run migrations
+php artisan migrate:fresh --seed       # Fresh DB with seeders
+php artisan db:seed-pending --force    # Run only new seeders
+
+# Cache
+php artisan optimize:clear   # Clear all caches
+php artisan optimize         # Cache config, routes, views
+
+# Code Quality
+./vendor/bin/pint           # Format code
+php artisan pail            # View logs
+```
+
+## Deployment
+
+### Deploy Script
+Located at `deploy.sh` in project root.
+
+```bash
+./deploy.sh   # Run from server
+```
+
+### Docker Commands (Production)
+```bash
+docker compose exec -T php php artisan migrate --force
+docker compose exec -T php php artisan db:seed-pending --force
+docker compose exec -T php php artisan optimize
+```
+
+
+## Services Module
+
+### Overview
+Services are similar to products but without inventory/stock management.
+
+### Service Model Fields
+- `branch_id`: Branch ownership
+- `sku`: Auto-generated (SRV-XXXXX)
+- `name`, `description`: Basic info
+- `category_id`: Optional category
+- `tax_id`: Tax rate
+- `cost`, `sale_price`: Pricing
+- `price_includes_tax`: Boolean
+- `has_commission`, `commission_type`, `commission_value`: Commission settings
+- `image`: Optional image
+- `is_active`: Status
+
+### Key Differences from Products
+- No barcode
+- No stock/inventory tracking
+- No variants/children
+- Unlimited quantity in POS (no stock check)
+- SKU prefix: SRV- instead of category-based
+
+### POS Integration
+- Services appear in the same grid as products
+- Identified by "Serv." badge (indigo color) at top-left
+- Stock info NOT shown for services (only for products)
+- Uses `addServiceToCart()` method
+- `sale_items.service_id` stores the service reference
+
+
+## Ingredients Module
+
+### Overview
+Ingredient management for restaurant operations with two tabs: Ingredients and Groups.
+
+### Ingredient Model Fields
+- `branch_id`: Branch ownership
+- `sku`: Auto-generated (`ING-XXXXX`)
+- `name`, `description`: Basic info
+- `category_id`, `unit_id`, `tax_id`: Relationships
+- `cost`, `sale_price`: Pricing
+- `price_includes_tax`, `available_for_sale`: Booleans
+- `current_stock`, `min_stock`, `max_stock`: Stock (DECIMAL 12,3)
+- `image`, `is_active`: Optional/status
+
+### Ingredient Groups
+- Groups of interchangeable ingredients (e.g., "Tipo de Proteína": Pollo, Res, Cerdo)
+- Minimum 2 options per group, no duplicate ingredients
+- `IngredientGroupOption`: `ingredient_group_id`, `ingredient_id`, `quantity`, `sort_order`
+
+### Key Differences from Products
+- SKU prefix: ING- instead of category-based
+- Has `available_for_sale` flag (optional direct sale)
+- No barcode, no variants/children
+- Can be linked to composite products via pivot tables
+- Deletion blocked if assigned to any group
+
+### File Structure
+```
+app/
+├── Livewire/Ingredients.php
+├── Models/
+│   ├── Ingredient.php
+│   ├── IngredientGroup.php
+│   ├── IngredientGroupOption.php
+│   ├── ProductIngredient.php
+│   └── ProductIngredientGroup.php
+resources/views/livewire/ingredients.blade.php
+```
+
+
+## Zones & Tables Module
+
+### Overview
+Restaurant zone and table management with two tabs: Zones and Tables.
+
+### Zone Model Fields
+- `branch_id`, `name`, `description`, `color` (HEX), `is_active`
+
+### RestaurantTable Model Fields
+- `zone_id`, `name`, `capacity` (int, default 4), `status` (available/occupied/reserved), `is_active`
+- Uses `protected $table = 'restaurant_tables'` (reserved word avoidance)
+
+### File Structure
+```
+app/
+├── Livewire/
+│   ├── ZonesAndTables.php
+│   └── Reception.php
+├── Models/
+│   ├── Zone.php
+│   └── RestaurantTable.php
+resources/views/livewire/
+├── zones-and-tables.blade.php
+└── reception.blade.php
+```
