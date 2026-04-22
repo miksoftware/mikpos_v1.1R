@@ -14,6 +14,9 @@ use App\Models\Service;
 use App\Models\Purchase;
 use App\Models\CashMovement;
 use App\Models\Expense;
+use App\Models\Customer;
+use App\Models\PaymentMethod;
+use App\Models\CashRegister;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
@@ -25,6 +28,7 @@ use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Color;
 use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 
 class ReportExportController extends Controller
 {
@@ -426,7 +430,7 @@ class ReportExportController extends Controller
             $sheet->setCellValue('B' . $row, $item->sale->invoice_number);
             $sheet->setCellValue('C' . $row, $item->product_name);
             $sheet->setCellValue('D' . $row, $item->product_sku);
-            $sheet->setCellValue('E' . $row, $item->sale->customer?->name ?? 'Consumidor Final');
+            $sheet->setCellValue('E' . $row, $item->sale->customer?->full_name ?? 'Consumidor Final');
             $sheet->setCellValue('F' . $row, $item->quantity);
             $sheet->setCellValue('G' . $row, $item->unit_price);
             $sheet->setCellValue('H' . $row, $item->total);
@@ -824,6 +828,262 @@ class ReportExportController extends Controller
         ])->deleteFileAfterSend(true);
     }
 
+    public function creditsGroupedExcel(Request $request)
+    {
+        $dateRange = $request->get('date_range', 'all');
+        $startDate = $request->get('start_date');
+        $endDate = $request->get('end_date');
+        $branchId = $request->get('branch_id');
+        $paymentStatus = $request->get('payment_status', '');
+        $search = $request->get('search', '');
+        $user = auth()->user();
+
+        $branchName = 'Todas';
+        if ($branchId) {
+            $branchName = Branch::find($branchId)?->name ?? 'Todas';
+        } elseif (!$user->isSuperAdmin()) {
+            $branchId = $user->branch_id;
+            $branchName = Branch::find($branchId)?->name ?? '';
+        }
+
+        // Build base query for credit sales grouped by customer
+        $query = Sale::where('sales.payment_type', 'credit')
+            ->where('sales.status', 'completed')
+            ->whereNotNull('sales.customer_id')
+            ->join('customers', 'sales.customer_id', '=', 'customers.id');
+
+        if ($branchId) {
+            $query->where('sales.branch_id', $branchId);
+        } elseif (!$user->isSuperAdmin()) {
+            $query->where('sales.branch_id', $user->branch_id);
+        }
+
+        if ($startDate) {
+            $query->whereDate('sales.created_at', '>=', $startDate);
+        }
+        if ($endDate) {
+            $query->whereDate('sales.created_at', '<=', $endDate);
+        }
+        if ($paymentStatus) {
+            $query->where('sales.payment_status', $paymentStatus);
+        }
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('customers.first_name', 'like', "%{$search}%")
+                    ->orWhere('customers.last_name', 'like', "%{$search}%")
+                    ->orWhere('customers.business_name', 'like', "%{$search}%")
+                    ->orWhere('customers.document_number', 'like', "%{$search}%");
+            });
+        }
+
+        // Get customer IDs with their summaries
+        $customerSummaries = (clone $query)
+            ->select(
+                'customers.id',
+                'customers.document_number',
+                'customers.phone',
+                DB::raw("CASE WHEN customers.customer_type = 'juridico' THEN customers.business_name ELSE CONCAT(customers.first_name, ' ', customers.last_name) END as customer_name"),
+                DB::raw('COUNT(sales.id) as total_invoices'),
+                DB::raw('SUM(sales.credit_amount) as total_credit'),
+                DB::raw('SUM(sales.paid_amount) as total_paid'),
+                DB::raw('SUM(sales.credit_amount - sales.paid_amount) as total_remaining')
+            )
+            ->groupBy('customers.id', 'customers.customer_type', 'customers.business_name', 'customers.first_name', 'customers.last_name', 'customers.document_number', 'customers.phone')
+            ->orderByDesc('total_remaining')
+            ->get();
+
+        // Get all invoices grouped by customer
+        $allInvoices = Sale::where('sales.payment_type', 'credit')
+            ->where('sales.status', 'completed')
+            ->whereIn('sales.customer_id', $customerSummaries->pluck('id'));
+
+        if ($branchId) {
+            $allInvoices->where('sales.branch_id', $branchId);
+        } elseif (!$user->isSuperAdmin()) {
+            $allInvoices->where('sales.branch_id', $user->branch_id);
+        }
+        if ($startDate) {
+            $allInvoices->whereDate('sales.created_at', '>=', $startDate);
+        }
+        if ($endDate) {
+            $allInvoices->whereDate('sales.created_at', '<=', $endDate);
+        }
+        if ($paymentStatus) {
+            $allInvoices->where('sales.payment_status', $paymentStatus);
+        }
+
+        $invoicesByCustomer = $allInvoices->orderBy('sales.created_at', 'desc')
+            ->get()
+            ->groupBy('customer_id');
+
+        // Build Excel
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Créditos por Cliente');
+
+        $headerStyle = [
+            'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF'], 'size' => 10],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'A855F7']],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => '9333EA']]],
+        ];
+        $customerHeaderStyle = [
+            'font' => ['bold' => true, 'size' => 11, 'color' => ['rgb' => 'FFFFFF']],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '475569']],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => '334155']]],
+        ];
+        $subtotalStyle = [
+            'font' => ['bold' => true, 'size' => 10],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'F1F5F9']],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => 'CBD5E1']]],
+        ];
+        $dataStyle = [
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => 'E2E8F0']]],
+        ];
+        $titleStyle = [
+            'font' => ['bold' => true, 'size' => 16, 'color' => ['rgb' => '1E293B']],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+        ];
+
+        $row = 1;
+        $sheet->setCellValue('A' . $row, 'REPORTE DE CRÉDITOS POR CLIENTE');
+        $sheet->mergeCells('A' . $row . ':G' . $row);
+        $sheet->getStyle('A' . $row)->applyFromArray($titleStyle);
+        $sheet->getRowDimension($row)->setRowHeight(30);
+        $row += 2;
+
+        $periodLabel = $startDate && $endDate ? "$startDate - $endDate" : 'Todo';
+        $sheet->setCellValue('A' . $row, 'Período:');
+        $sheet->setCellValue('B' . $row, $periodLabel);
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row++;
+        $sheet->setCellValue('A' . $row, 'Sucursal:');
+        $sheet->setCellValue('B' . $row, $branchName);
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row++;
+        $sheet->setCellValue('A' . $row, 'Generado:');
+        $sheet->setCellValue('B' . $row, now()->format('d/m/Y H:i'));
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row++;
+
+        if ($paymentStatus) {
+            $statusLabels = ['pending' => 'Pendiente', 'partial' => 'Parcial', 'paid' => 'Pagado'];
+            $sheet->setCellValue('A' . $row, 'Estado:');
+            $sheet->setCellValue('B' . $row, $statusLabels[$paymentStatus] ?? $paymentStatus);
+            $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+            $row++;
+        }
+
+        $row++;
+
+        // Grand totals
+        $grandTotalCredit = $customerSummaries->sum('total_credit');
+        $grandTotalPaid = $customerSummaries->sum('total_paid');
+        $grandTotalRemaining = $customerSummaries->sum('total_remaining');
+        $grandTotalInvoices = $customerSummaries->sum('total_invoices');
+
+        $sheet->setCellValue('A' . $row, 'RESUMEN GENERAL');
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true)->setSize(12);
+        $row++;
+        $sheet->setCellValue('A' . $row, 'Total Clientes:');
+        $sheet->setCellValue('B' . $row, $customerSummaries->count());
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row++;
+        $sheet->setCellValue('A' . $row, 'Total Facturas:');
+        $sheet->setCellValue('B' . $row, $grandTotalInvoices);
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row++;
+        $sheet->setCellValue('A' . $row, 'Total Créditos:');
+        $sheet->setCellValue('B' . $row, $grandTotalCredit);
+        $sheet->getStyle('A' . $row . ':B' . $row)->getFont()->setBold(true);
+        $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode('$#,##0.00');
+        $row++;
+        $sheet->setCellValue('A' . $row, 'Total Pagado:');
+        $sheet->setCellValue('B' . $row, $grandTotalPaid);
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode('$#,##0.00');
+        $sheet->getStyle('B' . $row)->getFont()->setColor(new Color('16A34A'));
+        $row++;
+        $sheet->setCellValue('A' . $row, 'Total Pendiente:');
+        $sheet->setCellValue('B' . $row, $grandTotalRemaining);
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode('$#,##0.00');
+        $sheet->getStyle('B' . $row)->getFont()->setBold(true)->setColor(new Color('DC2626'));
+        $row += 2;
+
+        // Per-customer detail
+        foreach ($customerSummaries as $customer) {
+            // Customer header row
+            $sheet->setCellValue('A' . $row, $customer->customer_name);
+            $sheet->setCellValue('C' . $row, 'Doc: ' . $customer->document_number);
+            $sheet->setCellValue('E' . $row, 'Tel: ' . ($customer->phone ?? '-'));
+            $sheet->mergeCells('A' . $row . ':B' . $row);
+            $sheet->mergeCells('C' . $row . ':D' . $row);
+            $sheet->mergeCells('E' . $row . ':G' . $row);
+            $sheet->getStyle('A' . $row . ':G' . $row)->applyFromArray($customerHeaderStyle);
+            $row++;
+
+            // Invoice headers
+            $sheet->setCellValue('A' . $row, 'Factura');
+            $sheet->setCellValue('B' . $row, 'Fecha');
+            $sheet->setCellValue('C' . $row, 'Total Venta');
+            $sheet->setCellValue('D' . $row, 'Total Crédito');
+            $sheet->setCellValue('E' . $row, 'Pagado');
+            $sheet->setCellValue('F' . $row, 'Pendiente');
+            $sheet->setCellValue('G' . $row, 'Estado');
+            $sheet->getStyle('A' . $row . ':G' . $row)->applyFromArray($headerStyle);
+            $row++;
+
+            // Invoice rows
+            $invoices = $invoicesByCustomer->get($customer->id, collect());
+            foreach ($invoices as $invoice) {
+                $remaining = (float) $invoice->credit_amount - (float) $invoice->paid_amount;
+                $statusLabels = ['pending' => 'Pendiente', 'partial' => 'Parcial', 'paid' => 'Pagado'];
+
+                $sheet->setCellValue('A' . $row, $invoice->invoice_number);
+                $sheet->setCellValue('B' . $row, $invoice->created_at->format('d/m/Y'));
+                $sheet->setCellValue('C' . $row, (float) $invoice->total);
+                $sheet->setCellValue('D' . $row, (float) $invoice->credit_amount);
+                $sheet->setCellValue('E' . $row, (float) $invoice->paid_amount);
+                $sheet->setCellValue('F' . $row, $remaining);
+                $sheet->setCellValue('G' . $row, $statusLabels[$invoice->payment_status] ?? $invoice->payment_status);
+                $sheet->getStyle('A' . $row . ':G' . $row)->applyFromArray($dataStyle);
+                $sheet->getStyle('C' . $row . ':F' . $row)->getNumberFormat()->setFormatCode('$#,##0.00');
+
+                if ($remaining > 0) {
+                    $sheet->getStyle('F' . $row)->getFont()->setColor(new Color('DC2626'));
+                }
+                $row++;
+            }
+
+            // Customer subtotal
+            $sheet->setCellValue('A' . $row, 'Subtotal ' . $customer->customer_name);
+            $sheet->mergeCells('A' . $row . ':B' . $row);
+            $sheet->setCellValue('C' . $row, '');
+            $sheet->setCellValue('D' . $row, (float) $customer->total_credit);
+            $sheet->setCellValue('E' . $row, (float) $customer->total_paid);
+            $sheet->setCellValue('F' . $row, (float) $customer->total_remaining);
+            $sheet->setCellValue('G' . $row, $customer->total_invoices . ' factura(s)');
+            $sheet->getStyle('A' . $row . ':G' . $row)->applyFromArray($subtotalStyle);
+            $sheet->getStyle('D' . $row . ':F' . $row)->getNumberFormat()->setFormatCode('$#,##0.00');
+            $sheet->getStyle('F' . $row)->getFont()->setBold(true)->setColor(new Color('DC2626'));
+            $row += 2;
+        }
+
+        foreach (range('A', 'G') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        $writer = new Xlsx($spreadsheet);
+        $filename = 'creditos-por-cliente-' . now()->format('Y-m-d') . '.xlsx';
+        $tempFile = tempnam(sys_get_temp_dir(), 'excel');
+        $writer->save($tempFile);
+
+        return response()->download($tempFile, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
+    }
+
     public function paymentMethodsExcel(Request $request)
     {
         $startDate = $request->get('start_date', now()->startOfMonth()->format('Y-m-d'));
@@ -990,6 +1250,562 @@ class ReportExportController extends Controller
         $spreadsheet->setActiveSheetIndex(0);
         $writer = new Xlsx($spreadsheet);
         $filename = 'medios-pago-' . $startDate . '-' . $endDate . '.xlsx';
+        $tempFile = tempnam(sys_get_temp_dir(), 'excel');
+        $writer->save($tempFile);
+
+        return response()->download($tempFile, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
+    }
+
+    public function ecommerceOrdersReportPdf(Request $request)
+    {
+        $data = $this->getEcommerceReportData($request);
+
+        $pdf = Pdf::loadView('reports.ecommerce-orders-report-pdf', $data);
+        $pdf->setPaper('a4', 'landscape');
+
+        return $pdf->download('reporte-pedidos-tienda-' . now()->format('Y-m-d') . '.pdf');
+    }
+
+    public function ecommerceOrdersReportExcel(Request $request)
+    {
+        $data = $this->getEcommerceReportData($request);
+
+        $products = $data['products'];
+        $customers = $data['customers'];
+        $customerTotals = $data['customerTotals'];
+        $grandTotal = $data['grandTotal'];
+        $customerKeys = array_keys($customers);
+        $totalColumns = count($customerKeys) + 2; // product + customers + total
+
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Pedidos Tienda');
+
+        $colLetter = fn(int $idx) => Coordinate::stringFromColumnIndex($idx);
+        $cell = fn(int $c, int $r) => $colLetter($c) . $r;
+
+        // Styles
+        $titleStyle = [
+            'font' => ['bold' => true, 'size' => 16, 'color' => ['rgb' => '1E293B']],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+        ];
+        $headerStyle = [
+            'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF'], 'size' => 10],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'A855F7']],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER, 'wrapText' => true],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => '9333EA']]],
+        ];
+        $totalHeaderStyle = [
+            'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF'], 'size' => 10],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '7C3AED']],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => '6D28D9']]],
+        ];
+        $dataStyle = [
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => 'E2E8F0']]],
+            'alignment' => ['vertical' => Alignment::VERTICAL_CENTER],
+        ];
+        $totalRowStyle = [
+            'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF'], 'size' => 10],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '1E293B']],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => '0F172A']]],
+        ];
+        $metaLabelStyle = [
+            'font' => ['bold' => true, 'size' => 10, 'color' => ['rgb' => '64748B']],
+        ];
+
+        $row = 1;
+        $lastColL = $colLetter($totalColumns);
+        $totalColL = $colLetter($totalColumns);
+
+        // Title
+        $sheet->setCellValue('A' . $row, 'TABLA DE PEDIDOS - TIENDA');
+        $sheet->mergeCells('A' . $row . ':' . $lastColL . $row);
+        $sheet->getStyle('A' . $row)->applyFromArray($titleStyle);
+        $sheet->getRowDimension($row)->setRowHeight(30);
+        $row += 2;
+
+        // Meta
+        $sheet->setCellValue('A' . $row, 'Período:');
+        $sheet->setCellValue('B' . $row, $data['startDate'] . ' - ' . $data['endDate']);
+        $sheet->getStyle('A' . $row)->applyFromArray($metaLabelStyle);
+        $row++;
+        $sheet->setCellValue('A' . $row, 'Estado:');
+        $sheet->setCellValue('B' . $row, $data['statusLabel']);
+        $sheet->getStyle('A' . $row)->applyFromArray($metaLabelStyle);
+        $row++;
+        $sheet->setCellValue('A' . $row, 'Generado:');
+        $sheet->setCellValue('B' . $row, $data['generatedAt']);
+        $sheet->getStyle('A' . $row)->applyFromArray($metaLabelStyle);
+        $row += 2;
+
+        // Summary row
+        $summaryBase = [
+            'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF'], 'size' => 11],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN]],
+        ];
+        $sheet->setCellValue('A' . $row, 'Productos: ' . count($products));
+        $sheet->getStyle('A' . $row)->applyFromArray(array_merge($summaryBase, [
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'FF7261']],
+        ]));
+        $sheet->setCellValue('B' . $row, 'Clientes: ' . count($customers));
+        $sheet->getStyle('B' . $row)->applyFromArray(array_merge($summaryBase, [
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '8B5CF6']],
+        ]));
+        $sheet->setCellValue('C' . $row, 'Total Uds: ' . $grandTotal);
+        $sheet->getStyle('C' . $row)->applyFromArray(array_merge($summaryBase, [
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '10B981']],
+        ]));
+        $sheet->getRowDimension($row)->setRowHeight(28);
+        $row += 2;
+
+        // Table header
+        $headerRow = $row;
+        $col = 1;
+        $sheet->setCellValue($cell($col, $row), 'PRODUCTO');
+        $col++;
+        foreach ($customers as $name) {
+            $sheet->setCellValue($cell($col, $row), $name);
+            $col++;
+        }
+        $sheet->setCellValue($cell($col, $row), 'TOTAL');
+
+        $headerRange = 'A' . $row . ':' . $colLetter(count($customerKeys) + 1) . $row;
+        $sheet->getStyle($headerRange)->applyFromArray($headerStyle);
+        $sheet->getStyle($totalColL . $row)->applyFromArray($totalHeaderStyle);
+        $sheet->getRowDimension($row)->setRowHeight(25);
+        $row++;
+
+        // Data rows
+        foreach ($products as $product) {
+            $col = 1;
+            $sheet->setCellValue($cell($col, $row), $product['name']);
+            $col++;
+            foreach ($customerKeys as $custKey) {
+                $qty = $product['quantities'][$custKey] ?? 0;
+                if ($qty > 0) {
+                    $sheet->setCellValue($cell($col, $row), $qty);
+                }
+                $col++;
+            }
+            $sheet->setCellValue($cell($col, $row), $product['total']);
+
+            $rowRange = 'A' . $row . ':' . $totalColL . $row;
+            $sheet->getStyle($rowRange)->applyFromArray($dataStyle);
+
+            // Alternate row color
+            if ($row % 2 == 0) {
+                $sheet->getStyle('A' . $row . ':' . $colLetter(count($customerKeys) + 1) . $row)
+                    ->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F8FAFC');
+            }
+
+            // Total column highlight
+            $sheet->getStyle($totalColL . $row)->getFill()
+                ->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F3E8FF');
+            $sheet->getStyle($totalColL . $row)->getFont()->setBold(true)->getColor()->setRGB('7C3AED');
+
+            // Number format for quantity columns
+            for ($c = 2; $c <= $totalColumns; $c++) {
+                $sheet->getStyle($colLetter($c) . $row)->getNumberFormat()->setFormatCode('#,##0.###');
+            }
+
+            $row++;
+        }
+
+        // Totals row
+        $col = 1;
+        $sheet->setCellValue($cell($col, $row), 'TOTAL');
+        $col++;
+        foreach ($customerKeys as $custKey) {
+            $val = $customerTotals[$custKey] ?? 0;
+            if ($val > 0) {
+                $sheet->setCellValue($cell($col, $row), $val);
+            }
+            $col++;
+        }
+        $sheet->setCellValue($cell($col, $row), $grandTotal);
+
+        $sheet->getStyle('A' . $row . ':' . $totalColL . $row)->applyFromArray($totalRowStyle);
+        $sheet->getRowDimension($row)->setRowHeight(25);
+
+        // Column widths
+        $sheet->getColumnDimension('A')->setWidth(35);
+        for ($c = 2; $c <= $totalColumns; $c++) {
+            $sheet->getColumnDimension($colLetter($c))->setAutoSize(true);
+        }
+
+        // Freeze panes
+        $sheet->freezePane('B' . ($headerRow + 1));
+
+        $writer = new Xlsx($spreadsheet);
+        $filename = 'reporte-pedidos-tienda-' . now()->format('Y-m-d') . '.xlsx';
+        $tempFile = tempnam(sys_get_temp_dir(), 'excel');
+        $writer->save($tempFile);
+
+        return response()->download($tempFile, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
+    }
+
+    private function getEcommerceReportData(Request $request): array
+    {
+        $dateFrom = $request->get('date_from', now()->startOfMonth()->format('Y-m-d'));
+        $dateTo = $request->get('date_to', now()->format('Y-m-d'));
+        $status = $request->get('status', 'all');
+
+        $query = SaleItem::query()
+            ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
+            ->leftJoin('customers', 'sales.customer_id', '=', 'customers.id')
+            ->where('sales.source', 'ecommerce')
+            ->where('sale_items.is_unavailable', false);
+
+        if ($status === 'pending') {
+            $query->where('sales.status', 'pending_approval');
+        } elseif ($status === 'approved') {
+            $query->where('sales.status', 'completed');
+        } elseif ($status === 'rejected') {
+            $query->where('sales.status', 'rejected');
+        } else {
+            $query->whereIn('sales.status', ['pending_approval', 'completed', 'rejected']);
+        }
+
+        if ($dateFrom) {
+            $query->whereDate('sales.created_at', '>=', $dateFrom);
+        }
+        if ($dateTo) {
+            $query->whereDate('sales.created_at', '<=', $dateTo);
+        }
+
+        $items = $query->select(
+            'sale_items.product_id',
+            'sale_items.product_name',
+            'sale_items.product_sku',
+            'sales.customer_id',
+            DB::raw("COALESCE(CONCAT(customers.first_name, ' ', customers.last_name), customers.business_name, 'Sin cliente') as customer_name"),
+            DB::raw('SUM(sale_items.quantity) as total_quantity'),
+        )
+        ->groupBy(
+            'sale_items.product_id',
+            'sale_items.product_name',
+            'sale_items.product_sku',
+            'sales.customer_id',
+            'customers.first_name',
+            'customers.last_name',
+            'customers.business_name',
+        )
+        ->get();
+
+        $products = [];
+        $customers = [];
+
+        foreach ($items as $item) {
+            $productKey = $item->product_id ?? $item->product_name;
+            $customerKey = $item->customer_id ?? 'sin_cliente';
+            $customerName = trim($item->customer_name) ?: 'Sin cliente';
+
+            if (!isset($products[$productKey])) {
+                $products[$productKey] = [
+                    'name' => $item->product_name,
+                    'sku' => $item->product_sku,
+                    'quantities' => [],
+                    'total' => 0,
+                ];
+            }
+
+            if (!isset($customers[$customerKey])) {
+                $customers[$customerKey] = $customerName;
+            }
+
+            $qty = (float) $item->total_quantity;
+            $products[$productKey]['quantities'][$customerKey] = ($products[$productKey]['quantities'][$customerKey] ?? 0) + $qty;
+            $products[$productKey]['total'] += $qty;
+        }
+
+        uasort($products, fn($a, $b) => strcmp($a['name'], $b['name']));
+        asort($customers);
+
+        $customerTotals = [];
+        foreach ($customers as $key => $name) {
+            $customerTotals[$key] = 0;
+            foreach ($products as $product) {
+                $customerTotals[$key] += $product['quantities'][$key] ?? 0;
+            }
+        }
+
+        $statusLabel = match($status) {
+            'pending' => 'Pendientes',
+            'approved' => 'Aprobados',
+            'rejected' => 'Rechazados',
+            default => 'Todos',
+        };
+
+        return [
+            'products' => $products,
+            'customers' => $customers,
+            'customerTotals' => $customerTotals,
+            'grandTotal' => collect($products)->sum('total'),
+            'startDate' => Carbon::parse($dateFrom)->format('d/m/Y'),
+            'endDate' => Carbon::parse($dateTo)->format('d/m/Y'),
+            'statusLabel' => $statusLabel,
+            'generatedAt' => now()->format('d/m/Y H:i:s'),
+        ];
+    }
+
+    public function salesBookExcel(Request $request)
+    {
+        $startDate = $request->get('start_date', now()->startOfMonth()->format('Y-m-d'));
+        $endDate = $request->get('end_date', now()->format('Y-m-d'));
+        $branchId = $request->get('branch_id');
+        $userId = $request->get('user_id');
+        $paymentMethodId = $request->get('payment_method_id');
+        $cashRegisterId = $request->get('cash_register_id');
+        $statusFilter = $request->get('status', 'all');
+        $search = $request->get('search', '');
+
+        $user = auth()->user();
+
+        // Build query
+        $query = Sale::query()
+            ->with(['customer', 'user', 'branch', 'payments.paymentMethod', 'cashReconciliation.cashRegister']);
+
+        if ($startDate) {
+            $query->whereDate('sales.created_at', '>=', $startDate);
+        }
+        if ($endDate) {
+            $query->whereDate('sales.created_at', '<=', $endDate);
+        }
+
+        if ($branchId) {
+            $query->where('sales.branch_id', $branchId);
+        } elseif (!$user->isSuperAdmin()) {
+            $query->where('sales.branch_id', $user->branch_id);
+        }
+
+        if ($userId) {
+            $query->where('sales.user_id', $userId);
+        }
+
+        if ($paymentMethodId) {
+            $query->whereHas('payments', function ($q) use ($paymentMethodId) {
+                $q->where('payment_method_id', $paymentMethodId);
+            });
+        }
+
+        if ($cashRegisterId) {
+            $query->whereHas('cashReconciliation', function ($q) use ($cashRegisterId) {
+                $q->where('cash_register_id', $cashRegisterId);
+            });
+        }
+
+        if ($statusFilter !== 'all') {
+            $query->where('sales.status', $statusFilter);
+        }
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('sales.invoice_number', 'like', "%{$search}%")
+                  ->orWhere('sales.dian_number', 'like', "%{$search}%")
+                  ->orWhereHas('customer', function ($cq) use ($search) {
+                      $cq->where('first_name', 'like', "%{$search}%")
+                        ->orWhere('last_name', 'like', "%{$search}%")
+                        ->orWhere('business_name', 'like', "%{$search}%")
+                        ->orWhere('document_number', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        $sales = $query->orderByDesc('sales.created_at')->get();
+
+        // Summary (completed only)
+        $completedSales = $sales->where('status', 'completed');
+        $totalSales = $completedSales->sum('total');
+        $totalSubtotal = $completedSales->sum('subtotal');
+        $totalTax = $completedSales->sum('tax_total');
+        $totalDiscount = $completedSales->sum('discount');
+        $totalTransactions = $completedSales->count();
+        $averageTicket = $totalTransactions > 0 ? $totalSales / $totalTransactions : 0;
+
+        // Branch name
+        $branchName = 'Todas';
+        if ($branchId) {
+            $branchName = Branch::find($branchId)?->name ?? 'Todas';
+        } elseif (!$user->isSuperAdmin()) {
+            $branchName = $user->branch?->name ?? '-';
+        }
+
+        // Build spreadsheet
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Libro de Ventas');
+
+        $headerStyle = [
+            'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF'], 'size' => 11],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'A855F7']],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => '9333EA']]],
+        ];
+
+        $titleStyle = [
+            'font' => ['bold' => true, 'size' => 16, 'color' => ['rgb' => '1E293B']],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+        ];
+
+        $subtitleStyle = [
+            'font' => ['bold' => true, 'size' => 12, 'color' => ['rgb' => 'A855F7']],
+        ];
+
+        $summaryStyle = [
+            'font' => ['bold' => true, 'size' => 11],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'F8FAFC']],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => 'E2E8F0']]],
+        ];
+
+        $dataStyle = [
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => 'E2E8F0']]],
+            'alignment' => ['vertical' => Alignment::VERTICAL_CENTER],
+        ];
+
+        $row = 1;
+
+        // Title
+        $sheet->setCellValue('A' . $row, 'LIBRO DE VENTAS');
+        $sheet->mergeCells('A' . $row . ':J' . $row);
+        $sheet->getStyle('A' . $row)->applyFromArray($titleStyle);
+        $sheet->getRowDimension($row)->setRowHeight(30);
+        $row += 2;
+
+        // Meta info
+        $sheet->setCellValue('A' . $row, 'Período:');
+        $sheet->setCellValue('B' . $row, Carbon::parse($startDate)->format('d/m/Y') . ' - ' . Carbon::parse($endDate)->format('d/m/Y'));
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row++;
+
+        $sheet->setCellValue('A' . $row, 'Sucursal:');
+        $sheet->setCellValue('B' . $row, $branchName);
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row++;
+
+        $sheet->setCellValue('A' . $row, 'Generado:');
+        $sheet->setCellValue('B' . $row, now()->format('d/m/Y H:i:s'));
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row += 2;
+
+        // Summary
+        $sheet->setCellValue('A' . $row, 'RESUMEN');
+        $sheet->getStyle('A' . $row)->applyFromArray($subtitleStyle);
+        $row++;
+
+        $summaryData = [
+            ['Total Ventas (Completadas):', $totalSales, '$#,##0'],
+            ['Subtotal:', $totalSubtotal, '$#,##0'],
+            ['Impuestos:', $totalTax, '$#,##0'],
+            ['Descuentos:', $totalDiscount, '$#,##0'],
+            ['Transacciones:', $totalTransactions, '#,##0'],
+            ['Ticket Promedio:', $averageTicket, '$#,##0'],
+        ];
+
+        foreach ($summaryData as $item) {
+            $sheet->setCellValue('A' . $row, $item[0]);
+            $sheet->setCellValue('B' . $row, $item[1]);
+            $sheet->getStyle('A' . $row . ':B' . $row)->applyFromArray($summaryStyle);
+            $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode($item[2]);
+            $row++;
+        }
+        $row += 2;
+
+        // Detail table
+        $sheet->setCellValue('A' . $row, 'DETALLE DE VENTAS');
+        $sheet->getStyle('A' . $row)->applyFromArray($subtitleStyle);
+        $row++;
+
+        $headers = ['Factura', 'No. DIAN', 'Fecha', 'Hora', 'Cliente', 'Documento', 'Vendedor', 'Forma de Pago', 'Subtotal', 'Impuestos', 'Descuento', 'Total', 'Estado', 'Tipo Pago', 'Caja'];
+        $col = 'A';
+        foreach ($headers as $header) {
+            $sheet->setCellValue($col . $row, $header);
+            $col++;
+        }
+        $sheet->getStyle('A' . $row . ':O' . $row)->applyFromArray($headerStyle);
+        $sheet->getRowDimension($row)->setRowHeight(25);
+        $row++;
+
+        // Data rows
+        foreach ($sales as $sale) {
+            $customerName = $sale->customer?->full_name ?? 'Consumidor Final';
+            $customerDoc = $sale->customer?->document_number ?? '';
+
+            $paymentMethods = $sale->payments->map(fn($p) => $p->paymentMethod?->name ?? 'N/A')->implode(', ');
+            if (empty($paymentMethods) && $sale->payment_type === 'credit') {
+                $paymentMethods = 'Crédito';
+            }
+
+            $status = $sale->status === 'completed' ? 'Completada' : 'Anulada';
+            $paymentType = match($sale->payment_type) {
+                'cash' => 'Contado',
+                'credit' => 'Crédito',
+                default => $sale->payment_type ?? '-',
+            };
+            $cashRegister = $sale->cashReconciliation?->cashRegister?->name ?? '-';
+
+            $sheet->setCellValue('A' . $row, $sale->invoice_number);
+            $sheet->setCellValue('B' . $row, $sale->dian_number ?? '-');
+            $sheet->setCellValue('C' . $row, $sale->created_at->format('d/m/Y'));
+            $sheet->setCellValue('D' . $row, $sale->created_at->format('H:i'));
+            $sheet->setCellValue('E' . $row, $customerName);
+            $sheet->setCellValue('F' . $row, $customerDoc);
+            $sheet->setCellValue('G' . $row, $sale->user?->name ?? '-');
+            $sheet->setCellValue('H' . $row, $paymentMethods);
+            $sheet->setCellValue('I' . $row, (float) $sale->subtotal);
+            $sheet->setCellValue('J' . $row, (float) $sale->tax_total);
+            $sheet->setCellValue('K' . $row, (float) $sale->discount);
+            $sheet->setCellValue('L' . $row, (float) $sale->total);
+            $sheet->setCellValue('M' . $row, $status);
+            $sheet->setCellValue('N' . $row, $paymentType);
+            $sheet->setCellValue('O' . $row, $cashRegister);
+
+            $sheet->getStyle('A' . $row . ':O' . $row)->applyFromArray($dataStyle);
+            $sheet->getStyle('I' . $row)->getNumberFormat()->setFormatCode('$#,##0');
+            $sheet->getStyle('J' . $row)->getNumberFormat()->setFormatCode('$#,##0');
+            $sheet->getStyle('K' . $row)->getNumberFormat()->setFormatCode('$#,##0');
+            $sheet->getStyle('L' . $row)->getNumberFormat()->setFormatCode('$#,##0');
+
+            if ($row % 2 == 0) {
+                $sheet->getStyle('A' . $row . ':O' . $row)->getFill()
+                    ->setFillType(Fill::FILL_SOLID)
+                    ->getStartColor()->setRGB('F8FAFC');
+            }
+
+            if ($sale->status !== 'completed') {
+                $sheet->getStyle('M' . $row)->getFont()->getColor()->setRGB('DC2626');
+            }
+
+            $row++;
+        }
+
+        // Totals row
+        $sheet->setCellValue('H' . $row, 'TOTALES:');
+        $sheet->getStyle('H' . $row)->getFont()->setBold(true);
+        $sheet->setCellValue('I' . $row, $completedSales->sum('subtotal'));
+        $sheet->setCellValue('J' . $row, $completedSales->sum('tax_total'));
+        $sheet->setCellValue('K' . $row, $completedSales->sum('discount'));
+        $sheet->setCellValue('L' . $row, $completedSales->sum('total'));
+        $sheet->getStyle('H' . $row . ':O' . $row)->applyFromArray($summaryStyle);
+        $sheet->getStyle('I' . $row)->getNumberFormat()->setFormatCode('$#,##0');
+        $sheet->getStyle('J' . $row)->getNumberFormat()->setFormatCode('$#,##0');
+        $sheet->getStyle('K' . $row)->getNumberFormat()->setFormatCode('$#,##0');
+        $sheet->getStyle('L' . $row)->getNumberFormat()->setFormatCode('$#,##0');
+
+        // Auto-size columns
+        foreach (range('A', 'O') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        $writer = new Xlsx($spreadsheet);
+        $filename = 'libro-ventas-' . now()->format('Y-m-d') . '.xlsx';
+
         $tempFile = tempnam(sys_get_temp_dir(), 'excel');
         $writer->save($tempFile);
 

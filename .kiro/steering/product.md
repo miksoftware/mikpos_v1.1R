@@ -1,6 +1,6 @@
 # MikPOS - Product Overview
 
-MikPOS is a Point of Sale (POS) system designed for retail/business and restaurant operations with multi-branch support.
+MikPOS is a Point of Sale (POS) system designed for retail/business operations with multi-branch support.
 
 ## Core Features
 - User authentication with role-based access (super_admin, branch_admin, supervisor, cashier)
@@ -26,12 +26,6 @@ MikPOS is a Point of Sale (POS) system designed for retail/business and restaura
 - Legacy data migration from SQL files
 - Activity log viewer
 - Reports: Sales Book, Products Sold, Commissions, Profit/Loss, Credits, Purchases, Cash, Payment Methods, Kardex
-- **Restaurant Features:**
-  - Ingredient management with stock tracking and optional direct sale
-  - Ingredient groups (interchangeable ingredient options)
-  - Composite products (products assembled from ingredients and ingredient groups)
-  - Zone and table management per branch
-  - Reception view (visual table status map per zone)
 
 ## User Roles (via roles table - many-to-many relationship)
 - **super_admin**: Full system access across all branches
@@ -84,9 +78,6 @@ MikPOS is a Point of Sale (POS) system designed for retail/business and restaura
     - expenses - Expense tracking
     - inventory_adjustments - Inventory adjustments
     - inventory_transfers - Inventory transfers between branches
-  - **Restaurant:**
-    - ingredients - Ingredient management (view, create, edit, delete)
-    - zones_tables - Zone and table management (view, create, edit, delete)
   - **Payroll (Nómina):**
     - employees - Employee management
     - payrolls - Payroll period management
@@ -118,10 +109,6 @@ The following entities are filtered by branch:
 - Sales (`branch_id`)
 - Expenses (`branch_id`)
 - Employees (`branch_id`)
-- Ingredients (`branch_id`)
-- Ingredient Groups (`branch_id`)
-- Zones (`branch_id`)
-- Restaurant Tables (via zone)
 
 **Super Admin Behavior**: Must select a branch before performing operations that require branch context (e.g., searching products in purchases).
 

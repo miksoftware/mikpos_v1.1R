@@ -52,9 +52,6 @@ Complete product catalog management system with hierarchical organization and op
 ```
 Category (1) → (N) Subcategory
 Brand (1) → (N) ProductModel
-Product (1) → (N) ProductIngredient → Ingredient (composite products)
-Product (1) → (N) ProductIngredientGroup → IngredientGroup (composite products)
-IngredientGroup (1) → (N) IngredientGroupOption → Ingredient
 ```
 
 ## Permissions Structure

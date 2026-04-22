@@ -53,8 +53,12 @@ class SeedPending extends Command
         'PayrollModuleSeeder',
         'DiscountsModuleSeeder',
         'PaymentMethodsReportPermissionSeeder',
-        'ZonesTablesModuleSeeder',
-        'IngredientsModuleSeeder',
+        'PosCashDenominationsPermissionSeeder',
+        'EcommerceModuleSeeder',
+        'EcommerceSystemDocumentSeeder',
+        'EcommerceOrdersModuleSeeder',
+        'CustomerSalesReportPermissionSeeder',
+        'SalesViewOwnPermissionSeeder',
         // Add new seeders here
     ];
 

@@ -79,7 +79,7 @@ Root application is in the workspace root directory.
 - **Sales** - Sales listing with refunds, credit notes, and cancel & replicate
 
 ### Creation/Catalog
-- **Products** - Product management with variants and composite products (ingredients)
+- **Products** - Product management with variants
 - **Services** - Service management (no inventory)
 - **Customers** - Customer management
 - **Suppliers** - Supplier management
@@ -87,11 +87,6 @@ Root application is in the workspace root directory.
 - **Credits** - Credit/payment management
 - **Discounts** - Predefined discounts (percentage/fixed, global/specific products)
 - **Expenses** - Business expense tracking with payment method and contact
-- **Ingredients** - Ingredient management with groups (two tabs: ingredients and groups)
-
-### Restaurant
-- **ZonesAndTables** - Zone and table management (two tabs: zones and tables)
-- **Reception** - Visual table status map per zone (available/occupied/reserved)
 
 ### Inventory
 - **Purchases** - Purchase order listing and payment control
@@ -135,15 +130,8 @@ Root application is in the workspace root directory.
 - ProductModel, Presentation, Color, Imei
 - Product, ProductChild, ProductBarcode
 
-### Ingredients & Composite Products
-- Ingredient, IngredientGroup, IngredientGroupOption
-- ProductIngredient, ProductIngredientGroup
-
 ### Services
 - Service
-
-### Restaurant
-- Zone, RestaurantTable
 
 ### Cash Management
 - CashRegister, CashReconciliation, CashReconciliationEdit, CashMovement
@@ -181,16 +169,8 @@ Root application is in the workspace root directory.
 - product_models, presentations, colors, imeis
 - products, product_children, product_barcodes
 
-### Ingredients & Composite Products
-- ingredients, ingredient_groups, ingredient_group_options
-- product_ingredients (pivot: product ↔ ingredient)
-- product_ingredient_groups (pivot: product ↔ ingredient_group)
-
 ### Services
 - services
-
-### Restaurant
-- zones, restaurant_tables
 
 ### Cash Management
 - cash_registers, cash_reconciliations, cash_reconciliation_edits, cash_movements
@@ -283,7 +263,6 @@ Located in `resources/views/components/sidebar-menu.blade.php`
 
 ```
 Dashboard
-Recepción
 POS
 Cajas (independent section)
 ├── Creación de Cajas
@@ -293,7 +272,6 @@ Administración
 ├── Sucursales
 ├── Roles
 ├── Logs de Actividad
-├── Zonas y Mesas
 └── Configuración
     ├── Departamentos
     ├── Municipios
@@ -319,8 +297,7 @@ Creación
 ├── Clientes
 ├── Proveedores
 ├── Combos
-├── Descuentos
-└── Ingredientes
+└── Descuentos
 Gastos
 Inventarios
 ├── Compras
@@ -427,71 +404,3 @@ Services are similar to products but without inventory/stock management.
 - Stock info NOT shown for services (only for products)
 - Uses `addServiceToCart()` method
 - `sale_items.service_id` stores the service reference
-
-
-## Ingredients Module
-
-### Overview
-Ingredient management for restaurant operations with two tabs: Ingredients and Groups.
-
-### Ingredient Model Fields
-- `branch_id`: Branch ownership
-- `sku`: Auto-generated (`ING-XXXXX`)
-- `name`, `description`: Basic info
-- `category_id`, `unit_id`, `tax_id`: Relationships
-- `cost`, `sale_price`: Pricing
-- `price_includes_tax`, `available_for_sale`: Booleans
-- `current_stock`, `min_stock`, `max_stock`: Stock (DECIMAL 12,3)
-- `image`, `is_active`: Optional/status
-
-### Ingredient Groups
-- Groups of interchangeable ingredients (e.g., "Tipo de Proteína": Pollo, Res, Cerdo)
-- Minimum 2 options per group, no duplicate ingredients
-- `IngredientGroupOption`: `ingredient_group_id`, `ingredient_id`, `quantity`, `sort_order`
-
-### Key Differences from Products
-- SKU prefix: ING- instead of category-based
-- Has `available_for_sale` flag (optional direct sale)
-- No barcode, no variants/children
-- Can be linked to composite products via pivot tables
-- Deletion blocked if assigned to any group
-
-### File Structure
-```
-app/
-├── Livewire/Ingredients.php
-├── Models/
-│   ├── Ingredient.php
-│   ├── IngredientGroup.php
-│   ├── IngredientGroupOption.php
-│   ├── ProductIngredient.php
-│   └── ProductIngredientGroup.php
-resources/views/livewire/ingredients.blade.php
-```
-
-
-## Zones & Tables Module
-
-### Overview
-Restaurant zone and table management with two tabs: Zones and Tables.
-
-### Zone Model Fields
-- `branch_id`, `name`, `description`, `color` (HEX), `is_active`
-
-### RestaurantTable Model Fields
-- `zone_id`, `name`, `capacity` (int, default 4), `status` (available/occupied/reserved), `is_active`
-- Uses `protected $table = 'restaurant_tables'` (reserved word avoidance)
-
-### File Structure
-```
-app/
-├── Livewire/
-│   ├── ZonesAndTables.php
-│   └── Reception.php
-├── Models/
-│   ├── Zone.php
-│   └── RestaurantTable.php
-resources/views/livewire/
-├── zones-and-tables.blade.php
-└── reception.blade.php
-```

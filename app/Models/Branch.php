@@ -13,6 +13,7 @@ class Branch extends Model
     protected $fillable = [
         'code',
         'name',
+        'logo',
         'tax_id',
         'department_id',
         'municipality_id',
@@ -29,6 +30,8 @@ class Branch extends Model
         'authorization_date',
         'receipt_header',
         'show_in_pos',
+        'ecommerce_enabled',
+        'show_stock_in_shop',
         'is_active',
     ];
 
@@ -37,6 +40,8 @@ class Branch extends Model
         return [
             'authorization_date' => 'date',
             'show_in_pos' => 'boolean',
+            'ecommerce_enabled' => 'boolean',
+            'show_stock_in_shop' => 'boolean',
             'is_active' => 'boolean',
         ];
     }

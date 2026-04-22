@@ -20,6 +20,7 @@ use App\Models\SaleItem;
 use App\Models\SalePayment;
 use App\Services\FactusService;
 use App\Services\ActivityLogService;
+use App\Services\EcommerceCheckoutService;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -34,6 +35,7 @@ class Sales extends Component
     public $filterStatus = '';
     public $filterElectronic = '';
     public $filterBranch = '';
+    public $filterSource = '';
     public $dateFrom = '';
     public $dateTo = '';
     
@@ -81,6 +83,13 @@ class Sales extends Component
         '4' => 'Ajuste de precio',
         '5' => 'Otros',
     ];
+
+    // E-commerce order management
+    public $showEcommerceDetailModal = false;
+    public $ecommerceOrder = null;
+    public $showRejectModal = false;
+    public $rejectReason = '';
+    public $rejectSaleId = null;
 
     public function mount()
     {
@@ -338,8 +347,11 @@ class Sales extends Component
                 }
             }
 
-            // Register cash movement for the credit note (expense)
-            $this->registerCashMovement($sale->branch_id, $creditNote->total, 'expense', "Nota Crédito {$creditNote->number}");
+            // Register cash movement only for the cash portion of the credit note
+            $cashCreditNoteAmount = $this->calculateCashPortionOfReturn($sale, $creditNote->total);
+            if ($cashCreditNoteAmount > 0) {
+                $this->registerCashMovement($sale->branch_id, $cashCreditNoteAmount, 'expense', "Nota Crédito {$creditNote->number}");
+            }
 
             // Return inventory for credit note items
             foreach ($this->creditNoteItems as $item) {
@@ -608,8 +620,11 @@ class Sales extends Component
                 }
             }
 
-            // Register cash movement for the refund (expense)
-            $this->registerCashMovement($sale->branch_id, $refund->total, 'expense', "Devolución {$refund->number}");
+            // Register cash movement only for the cash portion of the refund
+            $cashRefundAmount = $this->calculateCashPortionOfReturn($sale, $refund->total);
+            if ($cashRefundAmount > 0) {
+                $this->registerCashMovement($sale->branch_id, $cashRefundAmount, 'expense', "Devolución {$refund->number}");
+            }
 
             // Return inventory for refunded products
             foreach ($this->refundItems as $item) {
@@ -1045,6 +1060,46 @@ class Sales extends Component
     }
 
     /**
+     * Calculate the cash portion of a return (refund/credit note).
+     * Only the amount originally paid in cash should affect the cash register.
+     * For partial returns, the cash portion is proportional to the return amount.
+     */
+    protected function calculateCashPortionOfReturn(Sale $sale, float $returnTotal): float
+    {
+        $sale->load('payments.paymentMethod');
+
+        $saleTotal = (float) $sale->total;
+        if ($saleTotal <= 0) {
+            return 0;
+        }
+
+        // Sum only cash payments from the original sale
+        $cashPaymentTotal = 0;
+        $allPaymentsTotal = $sale->payments->sum('amount');
+
+        foreach ($sale->payments as $payment) {
+            if ($payment->isCash()) {
+                // Adjust for overpayment (change/vuelto) same as getTotalCashSalesAttribute
+                if ($allPaymentsTotal > $saleTotal && $allPaymentsTotal > 0) {
+                    $cashPaymentTotal += round(((float) $payment->amount / $allPaymentsTotal) * $saleTotal, 2);
+                } else {
+                    $cashPaymentTotal += (float) $payment->amount;
+                }
+            }
+        }
+
+        if ($cashPaymentTotal <= 0) {
+            return 0;
+        }
+
+        // Calculate the cash ratio of the original sale
+        $cashRatio = $cashPaymentTotal / $saleTotal;
+
+        // Apply the ratio to the return amount
+        return round($returnTotal * $cashRatio, 2);
+    }
+
+    /**
      * Register a cash movement for refund/credit note.
      */
     protected function registerCashMovement(int $branchId, float $amount, string $type, string $description): void
@@ -1096,6 +1151,111 @@ class Sales extends Component
         $this->historyItems = [];
         $this->historyType = '';
     }
+
+    public function viewEcommerceOrder($saleId)
+    {
+        $this->selectedSale = Sale::with([
+            'customer.taxDocument',
+            'user',
+            'branch',
+            'items.product',
+            'payments.paymentMethod',
+            'ecommerceOrder.shippingDepartment',
+            'ecommerceOrder.shippingMunicipality',
+        ])->find($saleId);
+
+        $this->ecommerceOrder = $this->selectedSale?->ecommerceOrder;
+        $this->showEcommerceDetailModal = true;
+    }
+
+    public function closeEcommerceDetailModal()
+    {
+        $this->showEcommerceDetailModal = false;
+        $this->selectedSale = null;
+        $this->ecommerceOrder = null;
+    }
+
+    public function approveOrder($saleId)
+    {
+        if (!auth()->user()->hasPermission('ecommerce_orders.approve')) {
+            $this->dispatch('notify', message: 'No tienes permiso para aprobar pedidos', type: 'error');
+            return;
+        }
+
+        $sale = Sale::find($saleId);
+
+        if (!$sale || !$sale->isEcommerce() || !$sale->isPendingApproval()) {
+            $this->dispatch('notify', message: 'El pedido no puede ser aprobado', type: 'error');
+            return;
+        }
+
+        try {
+            $service = new EcommerceCheckoutService();
+            $service->approveOrder($sale);
+
+            $this->showEcommerceDetailModal = false;
+            $this->selectedSale = null;
+            $this->ecommerceOrder = null;
+            $this->dispatch('notify', message: 'Pedido aprobado exitosamente', type: 'success');
+        } catch (\Exception $e) {
+            $this->dispatch('notify', message: 'Error al aprobar el pedido: ' . $e->getMessage(), type: 'error');
+        }
+    }
+
+    public function openRejectModal($saleId)
+    {
+        if (!auth()->user()->hasPermission('ecommerce_orders.reject')) {
+            $this->dispatch('notify', message: 'No tienes permiso para rechazar pedidos', type: 'error');
+            return;
+        }
+
+        $this->rejectSaleId = $saleId;
+        $this->rejectReason = '';
+        $this->showRejectModal = true;
+    }
+
+    public function closeRejectModal()
+    {
+        $this->showRejectModal = false;
+        $this->rejectSaleId = null;
+        $this->rejectReason = '';
+    }
+
+    public function rejectOrder()
+    {
+        if (!auth()->user()->hasPermission('ecommerce_orders.reject')) {
+            $this->dispatch('notify', message: 'No tienes permiso para rechazar pedidos', type: 'error');
+            return;
+        }
+
+        $this->validate([
+            'rejectReason' => 'required|min:10',
+        ], [
+            'rejectReason.required' => 'El motivo de rechazo es obligatorio.',
+            'rejectReason.min' => 'El motivo debe tener al menos 10 caracteres.',
+        ]);
+
+        $sale = Sale::find($this->rejectSaleId);
+
+        if (!$sale || !$sale->isEcommerce() || !$sale->isPendingApproval()) {
+            $this->dispatch('notify', message: 'El pedido no puede ser rechazado', type: 'error');
+            return;
+        }
+
+        try {
+            $service = new EcommerceCheckoutService();
+            $service->rejectOrder($sale, $this->rejectReason);
+
+            $this->closeRejectModal();
+            $this->showEcommerceDetailModal = false;
+            $this->selectedSale = null;
+            $this->ecommerceOrder = null;
+            $this->dispatch('notify', message: 'Pedido rechazado exitosamente', type: 'success');
+        } catch (\Exception $e) {
+            $this->dispatch('notify', message: 'Error al rechazar el pedido: ' . $e->getMessage(), type: 'error');
+        }
+    }
+
 
     public function viewCreditNotePdf($creditNoteId)
     {
@@ -1170,7 +1330,8 @@ class Sales extends Component
                        });
                 });
             })
-            ->when($this->filterStatus, fn($q) => $q->where('status', $this->filterStatus))
+            ->when($this->filterStatus, fn($q) => $q->where('sales.status', $this->filterStatus))
+            ->when($this->filterSource, fn($q) => $q->where('sales.source', $this->filterSource))
             ->when($this->filterElectronic !== '', function ($q) {
                 if ($this->filterElectronic === 'electronic') {
                     $q->where('is_electronic', true)->whereNotNull('cufe');
@@ -1183,6 +1344,9 @@ class Sales extends Component
             ->when($this->dateFrom, fn($q) => $q->whereDate('created_at', '>=', $this->dateFrom))
             ->when($this->dateTo, fn($q) => $q->whereDate('created_at', '<=', $this->dateTo));
         
+        // Check if user should only see their own sales
+        $viewOwnOnly = !$isSuperAdmin && $user->hasPermission('sales.view_own');
+
         if ($isSuperAdmin) {
             if ($this->filterBranch) {
                 $query->where('branch_id', $this->filterBranch);
@@ -1190,16 +1354,22 @@ class Sales extends Component
         } else {
             $query->where('branch_id', $user->branch_id);
         }
+
+        if ($viewOwnOnly) {
+            $query->where('sales.user_id', $user->id);
+        }
         
         $sales = $query->latest()->paginate(15);
         $branches = $isSuperAdmin ? Branch::where('is_active', true)->get() : collect();
         
         $todaySales = Sale::whereDate('created_at', today())
             ->when(!$isSuperAdmin, fn($q) => $q->where('branch_id', $user->branch_id))
+            ->when($viewOwnOnly, fn($q) => $q->where('user_id', $user->id))
             ->sum('total');
         
         $todayCount = Sale::whereDate('created_at', today())
             ->when(!$isSuperAdmin, fn($q) => $q->where('branch_id', $user->branch_id))
+            ->when($viewOwnOnly, fn($q) => $q->where('user_id', $user->id))
             ->count();
 
         return view('livewire.sales', [

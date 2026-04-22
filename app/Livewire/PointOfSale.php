@@ -22,6 +22,7 @@ use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\SalePayment;
 use App\Models\InventoryMovement;
+use App\Models\PrintFormatSetting;
 use App\Services\ActivityLogService;
 use App\Services\FactusService;
 use Illuminate\Support\Facades\DB;
@@ -110,6 +111,14 @@ class PointOfSale extends Component
 
     // Credit sale
     public bool $isCredit = false;
+
+    // Global invoice discount
+    public $showGlobalDiscountModal = false;
+    public $globalDiscountType = 'percentage';
+    public $globalDiscountValue = '';
+    public $globalDiscountReason = '';
+    public $globalDiscountApplied = false;
+    public $globalDiscountAmount = 0;
 
     public function mount()
     {
@@ -277,14 +286,14 @@ class PointOfSale extends Component
 
     public function updatedBarcodeSearch()
     {
-        $this->searchByBarcode();
+        // Search is triggered explicitly by Alpine.js debounce, not on model update
     }
 
     public function searchByBarcode()
     {
         $barcode = trim($this->barcodeSearch);
         
-        if (strlen($barcode) < 3) {
+        if (empty($barcode)) {
             return;
         }
 
@@ -373,12 +382,10 @@ class PointOfSale extends Component
             return;
         }
 
-        // If barcode looks complete (8+ digits) but not found, show notification
-        if (strlen($barcode) >= 8 && preg_match('/^\d+$/', $barcode)) {
-            $this->dispatch('notify', message: 'Producto no encontrado: ' . $barcode, type: 'warning');
-            $this->barcodeSearch = '';
-            $this->dispatch('focus-barcode-search');
-        }
+        // Barcode not found, show notification
+        $this->dispatch('notify', message: 'Producto no encontrado: ' . $barcode, type: 'warning');
+        $this->barcodeSearch = '';
+        $this->dispatch('focus-barcode-search');
     }
 
     public function openVariantModal($product)
@@ -436,8 +443,8 @@ class PointOfSale extends Component
         
         if (!$product) return;
         
-        // Check if product has stock
-        if ($product->current_stock <= 0) {
+        // Check if product has stock (only for products that manage inventory)
+        if ($product->manages_inventory && $product->current_stock <= 0) {
             $this->dispatch('notify', message: 'Producto sin stock disponible', type: 'error');
             return;
         }
@@ -458,9 +465,9 @@ class PointOfSale extends Component
         // This ensures parent and first child have different cart keys
         $cartKey = $productId . '-' . ($childId ?? 'parent');
         
-        // Check stock availability
+        // Check stock availability (only for products that manage inventory)
         $currentQtyInCart = isset($this->cart[$cartKey]) ? $this->cart[$cartKey]['quantity'] : 0;
-        if ($currentQtyInCart >= $product->current_stock) {
+        if ($product->manages_inventory && $currentQtyInCart >= $product->current_stock) {
             $this->dispatch('notify', message: 'Stock insuficiente. Disponible: ' . number_format($product->current_stock, 3), type: 'warning');
             return;
         }
@@ -800,6 +807,7 @@ class PointOfSale extends Component
             'price' => round($priceWithTax, 2),
             'unit' => $product->unit?->abbreviation ?? 'UND',
             'stock' => (float) $product->current_stock,
+            'manages_inventory' => (bool) $product->manages_inventory,
             'image' => $displayImage,
         ];
         
@@ -848,9 +856,10 @@ class PointOfSale extends Component
         // Round quantity to 3 decimal places
         $quantity = round($quantity, 3);
 
-        // Validate quantity <= stock
+        // Validate quantity <= stock (only for inventory-managed products)
         $stock = $this->weightModalProduct['stock'];
-        if ($quantity > $stock) {
+        $managesInventory = $this->weightModalProduct['manages_inventory'] ?? true;
+        if ($managesInventory && $quantity > $stock) {
             $formattedStock = rtrim(rtrim(number_format($stock, 3), '0'), '.');
             $this->dispatch('notify', message: "Stock insuficiente. Disponible: {$formattedStock}", type: 'error');
             return;
@@ -894,6 +903,11 @@ class PointOfSale extends Component
      */
     public function closePrintConfirmModal(): void
     {
+        // Check if we should open cash drawer by printing a blank page
+        if ($this->pendingPrintSaleId && PrintFormatSetting::shouldOpenCashDrawerOnSkip('pos')) {
+            $this->dispatch('print-blank-cash-drawer');
+        }
+
         $this->showPrintConfirmModal = false;
         $this->pendingPrintSaleId = null;
         $this->dispatch('focus-barcode-search');
@@ -924,11 +938,11 @@ class PointOfSale extends Component
         // Cart key: use 'parent' suffix when selling parent directly, child_id otherwise
         $cartKey = $productId . '-' . ($childId ?? 'parent');
         
-        // Check stock availability (including existing cart quantity)
+        // Check stock availability (including existing cart quantity) - only for inventory-managed products
         $currentQtyInCart = isset($this->cart[$cartKey]) ? $this->cart[$cartKey]['quantity'] : 0;
         $totalQty = $currentQtyInCart + $quantity;
         
-        if ($totalQty > $product->current_stock) {
+        if ($product->manages_inventory && $totalQty > $product->current_stock) {
             $available = $product->current_stock - $currentQtyInCart;
             $formattedAvailable = rtrim(rtrim(number_format($available, 3), '0'), '.');
             $this->dispatch('notify', message: "Stock insuficiente. Disponible: {$formattedAvailable}", type: 'warning');
@@ -1117,6 +1131,10 @@ class PointOfSale extends Component
     public function clearCart()
     {
         $this->cart = [];
+        $this->globalDiscountApplied = false;
+        $this->globalDiscountAmount = 0;
+        $this->globalDiscountValue = '';
+        $this->globalDiscountReason = '';
     }
 
     // Discount methods
@@ -1217,6 +1235,77 @@ class PointOfSale extends Component
         $this->discountReason = '';
     }
 
+    public function openGlobalDiscountModal()
+    {
+        if (empty($this->cart)) {
+            $this->dispatch('notify', message: 'Agrega productos al carrito', type: 'warning');
+            return;
+        }
+
+        if (!$this->globalDiscountApplied) {
+            $this->globalDiscountType = 'percentage';
+            $this->globalDiscountValue = '';
+            $this->globalDiscountReason = '';
+        }
+
+        $this->showGlobalDiscountModal = true;
+    }
+
+    public function applyGlobalDiscount()
+    {
+        $value = (float) str_replace(',', '.', $this->globalDiscountValue);
+
+        if ($value < 0) {
+            $this->dispatch('notify', message: 'El descuento no puede ser negativo', type: 'error');
+            return;
+        }
+
+        if ($this->globalDiscountType === 'percentage' && $value > 100) {
+            $this->dispatch('notify', message: 'El porcentaje no puede ser mayor a 100%', type: 'error');
+            return;
+        }
+
+        $baseTotal = collect($this->cart)->sum('subtotal')
+            - collect($this->cart)->sum('discount_amount')
+            + collect($this->cart)->sum('tax_amount');
+
+        if ($value > 0) {
+            if ($this->globalDiscountType === 'percentage') {
+                $discountAmount = round($baseTotal * ($value / 100), 2);
+            } else {
+                $discountAmount = round($value, 2);
+            }
+
+            if ($discountAmount > $baseTotal) {
+                $this->dispatch('notify', message: 'El descuento no puede ser mayor al total', type: 'error');
+                return;
+            }
+
+            $this->globalDiscountApplied = true;
+            $this->globalDiscountAmount = $discountAmount;
+        } else {
+            $this->globalDiscountApplied = false;
+            $this->globalDiscountAmount = 0;
+        }
+
+        $this->showGlobalDiscountModal = false;
+        $this->dispatch('notify', message: $value > 0 ? 'Descuento global aplicado' : 'Descuento global eliminado');
+    }
+
+    public function removeGlobalDiscount()
+    {
+        $this->globalDiscountApplied = false;
+        $this->globalDiscountAmount = 0;
+        $this->globalDiscountValue = '';
+        $this->globalDiscountReason = '';
+        $this->dispatch('notify', message: 'Descuento global eliminado');
+    }
+
+    public function closeGlobalDiscountModal()
+    {
+        $this->showGlobalDiscountModal = false;
+    }
+
     public function getSubtotalProperty()
     {
         return collect($this->cart)->sum('subtotal');
@@ -1234,7 +1323,8 @@ class PointOfSale extends Component
 
     public function getTotalProperty()
     {
-        return $this->getSubtotalProperty() - $this->getDiscountTotalProperty() + $this->getTaxTotalProperty();
+        $total = $this->getSubtotalProperty() - $this->getDiscountTotalProperty() + $this->getTaxTotalProperty();
+        return $total - $this->globalDiscountAmount;
     }
 
     public function getItemCountProperty()
@@ -1308,9 +1398,14 @@ class PointOfSale extends Component
             })
             ->first();
         
-        // Initialize with one payment method with the total amount
+        // Initialize with one payment method
+        // If user has cash denominations permission, start empty so they use the bills/coins panel
+        $initialAmount = auth()->user()->hasPermission('pos.cash_denominations')
+            ? ''
+            : $this->getTotalProperty();
+
         $this->payments = [
-            ['method_id' => $defaultPaymentMethod?->id ?? '', 'amount' => $this->getTotalProperty()]
+            ['method_id' => $defaultPaymentMethod?->id ?? '', 'amount' => $initialAmount]
         ];
         $this->isCredit = false;
         $this->showPaymentModal = true;
@@ -1394,7 +1489,7 @@ class PointOfSale extends Component
                 'invoice_number' => Sale::generateInvoiceNumber($this->branchId),
                 'subtotal' => $this->getSubtotalProperty(),
                 'tax_total' => $this->getTaxTotalProperty(),
-                'discount' => $this->getDiscountTotalProperty(),
+                'discount' => $this->getDiscountTotalProperty() + $this->globalDiscountAmount,
                 'total' => $total,
                 'status' => 'completed',
                 'payment_type' => $paymentType,
@@ -1402,6 +1497,10 @@ class PointOfSale extends Component
                 'credit_amount' => $this->isCredit ? $total : 0,
                 'paid_amount' => $paidAmount,
                 'notes' => $this->paymentNotes ?: null,
+                'global_discount_type' => $this->globalDiscountApplied ? $this->globalDiscountType : null,
+                'global_discount_value' => $this->globalDiscountApplied ? (float) str_replace(',', '.', $this->globalDiscountValue) : 0,
+                'global_discount_amount' => $this->globalDiscountAmount,
+                'global_discount_reason' => $this->globalDiscountApplied && trim($this->globalDiscountReason) ? trim($this->globalDiscountReason) : null,
             ]);
             
             // Create sale items and update stock
@@ -1429,7 +1528,7 @@ class PointOfSale extends Component
                 // Update product stock (only for products, not services or combos)
                 if ($item['product_id']) {
                     $product = Product::find($item['product_id']);
-                    if ($product) {
+                    if ($product && $product->manages_inventory) {
                         // Create inventory movement for sale
                         InventoryMovement::createMovement(
                             'sale',
@@ -1454,7 +1553,7 @@ class PointOfSale extends Component
                         foreach ($combo->items as $comboItem) {
                             if ($comboItem->product_id) {
                                 $product = Product::find($comboItem->product_id);
-                                if ($product) {
+                                if ($product && $product->manages_inventory) {
                                     $totalQty = (float) $comboItem->quantity * (float) $item['quantity'];
                                     InventoryMovement::createMovement(
                                         'sale',
@@ -1554,6 +1653,10 @@ class PointOfSale extends Component
             $this->payments = [];
             $this->paymentNotes = '';
             $this->isCredit = false;
+            $this->globalDiscountApplied = false;
+            $this->globalDiscountAmount = 0;
+            $this->globalDiscountValue = '';
+            $this->globalDiscountReason = '';
             $this->loadDefaultCustomer();
             
         } catch (\Exception $e) {
@@ -1699,6 +1802,11 @@ class PointOfSale extends Component
             'item_count' => $this->getItemCountProperty(),
             'created_at' => now()->format('H:i'),
             'note' => $this->holdNote,
+            'global_discount_applied' => $this->globalDiscountApplied,
+            'global_discount_type' => $this->globalDiscountType,
+            'global_discount_value' => $this->globalDiscountValue,
+            'global_discount_reason' => $this->globalDiscountReason,
+            'global_discount_amount' => $this->globalDiscountAmount,
         ];
         
         $this->heldOrders[] = $heldOrder;
@@ -1707,6 +1815,10 @@ class PointOfSale extends Component
         // Clear current cart
         $this->cart = [];
         $this->holdNote = '';
+        $this->globalDiscountApplied = false;
+        $this->globalDiscountAmount = 0;
+        $this->globalDiscountValue = '';
+        $this->globalDiscountReason = '';
         $this->loadDefaultCustomer();
         
         $this->dispatch('notify', message: 'Orden guardada en espera', type: 'success');
@@ -1742,6 +1854,13 @@ class PointOfSale extends Component
                 $this->selectedCustomer = $customer;
             }
         }
+
+        // Restore global discount
+        $this->globalDiscountApplied = $order['global_discount_applied'] ?? false;
+        $this->globalDiscountType = $order['global_discount_type'] ?? 'percentage';
+        $this->globalDiscountValue = $order['global_discount_value'] ?? '';
+        $this->globalDiscountReason = $order['global_discount_reason'] ?? '';
+        $this->globalDiscountAmount = $order['global_discount_amount'] ?? 0;
         
         // Remove from held orders
         unset($this->heldOrders[$index]);
@@ -1798,12 +1917,15 @@ class PointOfSale extends Component
         // Build combined list of sellable items (parents without children + all children)
         $sellableItems = collect();
         
-        // Query for products with stock
+        // Query for products with stock or products that don't manage inventory
         $productsQuery = Product::with(['category', 'brand', 'tax', 'unit', 'children' => function ($q) {
                 $q->where('is_active', true);
             }])
             ->where('is_active', true)
-            ->where('current_stock', '>', 0)
+            ->where(function ($q) {
+                $q->where('manages_inventory', false)
+                  ->orWhere('current_stock', '>', 0);
+            })
             ->forBranch($this->branchId);
         
         if ($this->selectedCategory) {
@@ -1843,6 +1965,7 @@ class PointOfSale extends Component
                         ? $product->sale_price 
                         : $product->getSalePriceWithTax(),
                     'stock' => (float) $product->current_stock,
+                    'manages_inventory' => (bool) $product->manages_inventory,
                     'image' => $product->image,
                     'unit' => $product->unit?->abbreviation ?? 'UND',
                 ]);
@@ -1860,6 +1983,7 @@ class PointOfSale extends Component
                         ? $product->sale_price 
                         : $product->getSalePriceWithTax(),
                     'stock' => (float) $product->current_stock,
+                    'manages_inventory' => (bool) $product->manages_inventory,
                     'image' => $product->image,
                     'unit' => $product->unit?->abbreviation ?? 'UND',
                     'has_variants' => true,
@@ -1880,6 +2004,7 @@ class PointOfSale extends Component
                             ? $child->sale_price 
                             : $child->getSalePriceWithTax(),
                         'stock' => (float) $product->current_stock, // Stock is at parent level
+                        'manages_inventory' => (bool) $product->manages_inventory,
                         'image' => $child->image ?? $product->image,
                         'unit' => $product->unit?->abbreviation ?? 'UND',
                     ]);

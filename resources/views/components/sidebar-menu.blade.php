@@ -22,14 +22,16 @@
     <span @if(!$mobile) x-show="sidebarOpen" @endif class="font-medium">Dashboard</span>
 </a>
 
-<!-- Recepción -->
-<a href="{{ route('reception') }}" @if($mobile) @click="mobileMenuOpen = false" @endif
-    class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group {{ request()->routeIs('reception') ? 'bg-gradient-to-r from-[#ff7261]/20 to-[#a855f7]/20 text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white' }}">
-    <svg class="w-5 h-5 flex-shrink-0 {{ request()->routeIs('reception') ? 'text-[#a855f7]' : 'group-hover:text-[#a855f7]' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+<!-- POS -->
+@if (auth()->user()->hasPermission('pos.access'))
+<a href="{{ route('pos') }}" @if($mobile) @click="mobileMenuOpen = false" @endif
+    class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group {{ request()->routeIs('pos') ? 'bg-white/10 text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white' }}">
+    <svg class="w-5 h-5 flex-shrink-0 {{ request()->routeIs('pos') ? 'text-[#a855f7]' : 'group-hover:text-[#a855f7]' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
     </svg>
-    <span @if(!$mobile) x-show="sidebarOpen" @endif class="font-medium">Recepción</span>
+    <span @if(!$mobile) x-show="sidebarOpen" @endif class="font-medium">POS</span>
 </a>
+@endif
 
 <!-- Cajas Section -->
 @if (auth()->user()->hasPermission('cash_registers.view') || auth()->user()->hasPermission('cash_reconciliations.view'))
@@ -108,6 +110,29 @@
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
     </svg>
     <span x-show="sidebarOpen" class="font-medium">Ventas</span>
+</a>
+@endif
+@endif
+
+<!-- Pedidos Tienda -->
+@if (auth()->user()->hasPermission('ecommerce_orders.view') && \App\Models\Branch::where('ecommerce_enabled', true)->where('is_active', true)->exists())
+@if($mobile)
+<div class="{{ $sectionClass }}">
+    <a href="{{ route('ecommerce-orders') }}" @click="mobileMenuOpen = false"
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl {{ request()->routeIs('ecommerce-orders') ? $activeClass : $inactiveClass }}">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path>
+        </svg>
+        <span class="font-medium">Pedidos Tienda</span>
+    </a>
+</div>
+@else
+<a href="{{ route('ecommerce-orders') }}"
+    class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group {{ request()->routeIs('ecommerce-orders') ? 'bg-white/10 text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white' }}">
+    <svg class="w-5 h-5 flex-shrink-0 group-hover:text-[#a855f7]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path>
+    </svg>
+    <span x-show="sidebarOpen" class="font-medium">Pedidos Tienda</span>
 </a>
 @endif
 @endif
@@ -210,17 +235,9 @@
         <span>Descuentos</span>
     </a>
     @endif
-    @if (auth()->user()->hasPermission('ingredients.view'))
-    <a href="{{ route('ingredients') }}" @click="mobileMenuOpen = false" class="{{ $linkClass }} {{ request()->routeIs('ingredients') ? $activeClass : $inactiveClass }}">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path>
-        </svg>
-        <span>Ingredientes</span>
-    </a>
-    @endif
 </div>
 @else
-<div x-data="{ creacionOpen: {{ request()->routeIs('customers') || request()->routeIs('suppliers') || request()->routeIs('products') || request()->routeIs('combos') || request()->routeIs('services') || request()->routeIs('discounts') || request()->routeIs('ingredients') ? 'true' : 'false' }} }">
+<div x-data="{ creacionOpen: {{ request()->routeIs('customers') || request()->routeIs('suppliers') || request()->routeIs('products') || request()->routeIs('combos') || request()->routeIs('services') || request()->routeIs('discounts') ? 'true' : 'false' }} }">
     <button @click="creacionOpen = !creacionOpen"
         class="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group text-slate-400 hover:bg-white/5 hover:text-white">
         <div class="flex items-center gap-3">
@@ -280,14 +297,6 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
             </svg>
             <span class="text-sm">Descuentos</span>
-        </a>
-        @endif
-        @if (auth()->user()->hasPermission('ingredients.view'))
-        <a href="{{ route('ingredients') }}" class="{{ $linkClass }} {{ request()->routeIs('ingredients') ? $activeClass : $inactiveClass }}">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path>
-            </svg>
-            <span class="text-sm">Ingredientes</span>
         </a>
         @endif
     </div>
@@ -493,6 +502,14 @@
         <span>Medios de Pago</span>
     </a>
     @endif
+    @if (auth()->user()->hasPermission('reports.customer_sales'))
+    <a href="{{ route('reports.customer-sales') }}" @click="mobileMenuOpen = false" class="{{ $linkClass }} {{ request()->routeIs('reports.customer-sales') ? $activeClass : $inactiveClass }}">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path>
+        </svg>
+        <span>Ventas por Cliente</span>
+    </a>
+    @endif
     @if (auth()->user()->hasPermission('reports.kardex'))
     <a href="{{ route('reports.kardex') }}" @click="mobileMenuOpen = false" class="{{ $linkClass }} {{ request()->routeIs('reports.kardex') ? $activeClass : $inactiveClass }}">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -518,7 +535,7 @@
     </button>
     <div x-show="reportesOpen && sidebarOpen" x-collapse class="{{ $sectionClass }}">
         <!-- Ventas Submenu -->
-        <div x-data="{ ventasReportOpen: {{ request()->routeIs('reports.products-sold') || request()->routeIs('reports.commissions') || request()->routeIs('reports.sales-book') || request()->routeIs('reports.profit-loss') || request()->routeIs('reports.credits') || request()->routeIs('reports.purchases') || request()->routeIs('reports.cash') || request()->routeIs('reports.payment-methods') ? 'true' : 'false' }} }">
+        <div x-data="{ ventasReportOpen: {{ request()->routeIs('reports.products-sold') || request()->routeIs('reports.commissions') || request()->routeIs('reports.sales-book') || request()->routeIs('reports.profit-loss') || request()->routeIs('reports.credits') || request()->routeIs('reports.purchases') || request()->routeIs('reports.cash') || request()->routeIs('reports.payment-methods') || request()->routeIs('reports.customer-sales') ? 'true' : 'false' }} }">
             <button @click="ventasReportOpen = !ventasReportOpen"
                 class="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg transition-all duration-200 text-slate-400 hover:bg-white/5 hover:text-white">
                 <div class="flex items-center gap-3">
@@ -594,6 +611,14 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
                     </svg>
                     <span class="text-xs">Medios de Pago</span>
+                </a>
+                @endif
+                @if (auth()->user()->hasPermission('reports.customer_sales'))
+                <a href="{{ route('reports.customer-sales') }}" class="flex items-center gap-3 px-3 py-1.5 rounded-lg transition-all duration-200 {{ request()->routeIs('reports.customer-sales') ? $activeClass : $inactiveClass }}">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                    </svg>
+                    <span class="text-xs">Ventas por Cliente</span>
                 </a>
                 @endif
             </div>
@@ -741,14 +766,6 @@
         <span>Formatos Impresión</span>
     </a>
     @endif
-    @if (auth()->user()->hasPermission('zones_tables.view'))
-    <a href="{{ route('zones-tables') }}" @click="mobileMenuOpen = false" class="{{ $linkClass }} {{ request()->routeIs('zones-tables') ? $activeClass : $inactiveClass }}">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>
-        </svg>
-        <span>Zonas y Mesas</span>
-    </a>
-    @endif
     
     <!-- Catálogo Productos (Mobile) -->
     <p class="px-3 py-2 text-xs font-semibold text-slate-500 uppercase mt-2">Catálogo Productos</p>
@@ -788,11 +805,23 @@
         </svg>
         <span>Presentaciones</span>
     </a>
+    <a href="{{ route('colors') }}" @click="mobileMenuOpen = false" class="{{ $linkClass }} {{ request()->routeIs('colors') ? $activeClass : $inactiveClass }}">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
+        </svg>
+        <span>Colores</span>
+    </a>
+    <a href="{{ route('imeis') }}" @click="mobileMenuOpen = false" class="{{ $linkClass }} {{ request()->routeIs('imeis') ? $activeClass : $inactiveClass }}">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+        </svg>
+        <span>IMEIs</span>
+    </a>
 </div>
 
 @else
 <!-- Administración Section (Desktop) -->
-<div x-data="{ adminOpen: {{ request()->routeIs('users') || request()->routeIs('branches') || request()->routeIs('roles') || request()->routeIs('activity-logs') || request()->routeIs('migration') || request()->routeIs('departments') || request()->routeIs('municipalities') || request()->routeIs('tax-documents') || request()->routeIs('currencies') || request()->routeIs('payment-methods') || request()->routeIs('taxes') || request()->routeIs('system-documents') || request()->routeIs('categories') || request()->routeIs('subcategories') || request()->routeIs('brands') || request()->routeIs('units') || request()->routeIs('product-models') || request()->routeIs('presentations') || request()->routeIs('product-field-config') || request()->routeIs('billing-settings') || request()->routeIs('print-formats') || request()->routeIs('zones-tables') ? 'true' : 'false' }}, configOpen: {{ request()->routeIs('departments') || request()->routeIs('municipalities') || request()->routeIs('tax-documents') || request()->routeIs('currencies') || request()->routeIs('payment-methods') || request()->routeIs('taxes') || request()->routeIs('system-documents') || request()->routeIs('product-field-config') || request()->routeIs('billing-settings') || request()->routeIs('print-formats') || request()->routeIs('zones-tables') ? 'true' : 'false' }}, productsOpen: {{ request()->routeIs('categories') || request()->routeIs('subcategories') || request()->routeIs('brands') || request()->routeIs('units') || request()->routeIs('product-models') || request()->routeIs('presentations') ? 'true' : 'false' }} }">
+<div x-data="{ adminOpen: {{ request()->routeIs('users') || request()->routeIs('branches') || request()->routeIs('roles') || request()->routeIs('activity-logs') || request()->routeIs('migration') || request()->routeIs('departments') || request()->routeIs('municipalities') || request()->routeIs('tax-documents') || request()->routeIs('currencies') || request()->routeIs('payment-methods') || request()->routeIs('taxes') || request()->routeIs('system-documents') || request()->routeIs('categories') || request()->routeIs('subcategories') || request()->routeIs('brands') || request()->routeIs('units') || request()->routeIs('product-models') || request()->routeIs('presentations') || request()->routeIs('colors') || request()->routeIs('imeis') || request()->routeIs('product-field-config') || request()->routeIs('billing-settings') || request()->routeIs('print-formats') ? 'true' : 'false' }}, configOpen: {{ request()->routeIs('departments') || request()->routeIs('municipalities') || request()->routeIs('tax-documents') || request()->routeIs('currencies') || request()->routeIs('payment-methods') || request()->routeIs('taxes') || request()->routeIs('system-documents') || request()->routeIs('product-field-config') || request()->routeIs('billing-settings') || request()->routeIs('print-formats') ? 'true' : 'false' }}, productsOpen: {{ request()->routeIs('categories') || request()->routeIs('subcategories') || request()->routeIs('brands') || request()->routeIs('units') || request()->routeIs('product-models') || request()->routeIs('presentations') || request()->routeIs('colors') || request()->routeIs('imeis') ? 'true' : 'false' }} }">
     <button @click="adminOpen = !adminOpen"
         class="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group text-slate-400 hover:bg-white/5 hover:text-white">
         <div class="flex items-center gap-3">
@@ -928,14 +957,6 @@
                     <span class="text-sm">Formatos de Impresión</span>
                 </a>
                 @endif
-                @if (auth()->user()->hasPermission('zones_tables.view'))
-                <a href="{{ route('zones-tables') }}" class="flex items-center gap-3 px-3 py-1.5 rounded-lg transition-all duration-200 {{ request()->routeIs('zones-tables') ? $activeClass : $inactiveClass }}">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>
-                    </svg>
-                    <span class="text-sm">Zonas y Mesas</span>
-                </a>
-                @endif
 
                 <!-- Productos Submenu dentro de Configuración -->
                 <div>
@@ -988,6 +1009,18 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"></path>
                             </svg>
                             <span class="text-xs">Presentaciones</span>
+                        </a>
+                        <a href="{{ route('colors') }}" class="flex items-center gap-3 px-3 py-1.5 rounded-lg transition-all duration-200 {{ request()->routeIs('colors') ? $activeClass : $inactiveClass }}">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
+                            </svg>
+                            <span class="text-xs">Colores</span>
+                        </a>
+                        <a href="{{ route('imeis') }}" class="flex items-center gap-3 px-3 py-1.5 rounded-lg transition-all duration-200 {{ request()->routeIs('imeis') ? $activeClass : $inactiveClass }}">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                            </svg>
+                            <span class="text-xs">IMEIs</span>
                         </a>
                     </div>
                 </div>

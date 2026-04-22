@@ -28,11 +28,32 @@ Route::post('/logout', function () {
     return redirect('/login');
 })->name('logout');
 
+// E-commerce routes (guest - customer guard)
+Route::prefix('shop')->middleware(['guest:customer', 'ecommerce.check'])->group(function () {
+    Route::get('/login', App\Livewire\Shop\Auth\Login::class)->name('shop.login');
+    Route::get('/register', App\Livewire\Shop\Auth\Register::class)->name('shop.register');
+    Route::get('/forgot-password', App\Livewire\Shop\Auth\ForgotPassword::class)->name('shop.forgot-password');
+});
+
+// E-commerce routes (authenticated - customer guard)
+Route::prefix('shop')->middleware('ecommerce.auth')->group(function () {
+    Route::get('/', App\Livewire\Shop\Catalog::class)->name('shop.catalog');
+    Route::get('/product/{product}', App\Livewire\Shop\ProductDetail::class)->name('shop.product');
+    Route::get('/cart', App\Livewire\Shop\Cart::class)->name('shop.cart');
+    Route::get('/checkout', App\Livewire\Shop\Checkout::class)->name('shop.checkout');
+    Route::get('/order/{sale}', App\Livewire\Shop\OrderConfirmation::class)->name('shop.order');
+    Route::get('/orders', App\Livewire\Shop\Orders::class)->name('shop.orders');
+
+    Route::post('/logout', function () {
+        Auth::guard('customer')->logout();
+        request()->session()->invalidate();
+        request()->session()->regenerateToken();
+        return redirect('/shop/login');
+    })->name('shop.logout');
+});
+
 // Protected routes
 Route::middleware(['auth'])->group(function () {
-    Route::get('/reception', App\Livewire\Reception::class)
-        ->name('reception');
-
     Route::get('/dashboard', App\Livewire\Dashboard::class)
         ->name('dashboard')
         ->middleware('permission:dashboard.view');
@@ -102,6 +123,14 @@ Route::middleware(['auth'])->group(function () {
         ->name('presentations')
         ->middleware('permission:presentations.view');
 
+    Route::get('/colors', App\Livewire\Colors::class)
+        ->name('colors')
+        ->middleware('permission:colors.view');
+
+    Route::get('/imeis', App\Livewire\Imeis::class)
+        ->name('imeis')
+        ->middleware('permission:imeis.view');
+
     // Customer Management Routes
     Route::get('/customers', App\Livewire\Customers::class)
         ->name('customers')
@@ -169,6 +198,19 @@ Route::middleware(['auth'])->group(function () {
         ->name('sales')
         ->middleware('permission:sales.view');
 
+    // Ecommerce Orders
+    Route::get('/ecommerce-orders', App\Livewire\EcommerceOrders::class)
+        ->name('ecommerce-orders')
+        ->middleware('permission:ecommerce_orders.view');
+
+    Route::get('/ecommerce-orders/report-pdf', [App\Http\Controllers\ReportExportController::class, 'ecommerceOrdersReportPdf'])
+        ->name('ecommerce-orders.report-pdf')
+        ->middleware('permission:ecommerce_orders.view');
+
+    Route::get('/ecommerce-orders/report-excel', [App\Http\Controllers\ReportExportController::class, 'ecommerceOrdersReportExcel'])
+        ->name('ecommerce-orders.report-excel')
+        ->middleware('permission:ecommerce_orders.view');
+
     // Billing Settings
     Route::get('/billing-settings', App\Livewire\BillingSettings::class)
         ->name('billing-settings')
@@ -188,16 +230,6 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/expenses', App\Livewire\Expenses::class)
         ->name('expenses')
         ->middleware('permission:expenses.view');
-
-    // Ingredients
-    Route::get('/ingredients', App\Livewire\Ingredients::class)
-        ->name('ingredients')
-        ->middleware('permission:ingredients.view');
-
-    // Zones & Tables
-    Route::get('/zones-tables', App\Livewire\ZonesAndTables::class)
-        ->name('zones-tables')
-        ->middleware('permission:zones_tables.view');
 
     // Activity Logs
     Route::get('/activity-logs', App\Livewire\ActivityLogs::class)
@@ -227,6 +259,8 @@ Route::middleware(['auth'])->group(function () {
             'items',
             'payments.paymentMethod',
             'cashReconciliation.cashRegister',
+            'ecommerceOrder.shippingDepartment',
+            'ecommerceOrder.shippingMunicipality',
         ]);
 
         $format = App\Models\PrintFormatSetting::getFormat('pos');
@@ -321,6 +355,10 @@ Route::middleware(['auth'])->group(function () {
             ->name('sales-book')
             ->middleware('permission:reports.sales_book');
 
+        Route::get('/sales-book/excel', [App\Http\Controllers\ReportExportController::class, 'salesBookExcel'])
+            ->name('sales-book.excel')
+            ->middleware('permission:reports.export');
+
         Route::get('/profit-loss', App\Livewire\Reports\ProfitLoss::class)
             ->name('profit-loss')
             ->middleware('permission:reports.profit_loss');
@@ -332,6 +370,10 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/credits', App\Livewire\Reports\CreditsReport::class)
             ->name('credits')
             ->middleware('permission:reports.credits');
+
+        Route::get('/credits/excel', [App\Http\Controllers\ReportExportController::class, 'creditsGroupedExcel'])
+            ->name('credits.excel')
+            ->middleware('permission:reports.export');
 
         Route::get('/purchases', App\Livewire\Reports\PurchasesReport::class)
             ->name('purchases')
@@ -348,5 +390,9 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/payment-methods/excel', [App\Http\Controllers\ReportExportController::class, 'paymentMethodsExcel'])
             ->name('payment-methods.excel')
             ->middleware('permission:reports.export');
+
+        Route::get('/customer-sales', App\Livewire\Reports\CustomerSales::class)
+            ->name('customer-sales')
+            ->middleware('permission:reports.customer_sales');
     });
 });

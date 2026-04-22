@@ -17,8 +17,9 @@
         }
         
         body {
-            font-family: 'Courier New', Courier, monospace;
+            font-family: 'Arial Black', 'Arial Bold', 'Helvetica Bold', Arial, sans-serif;
             font-size: 11px;
+            font-weight: bold;
             line-height: 1.4;
             width: 72mm;
             max-width: 72mm;
@@ -141,7 +142,7 @@
         .item {
             margin-bottom: 4px;
             padding-bottom: 3px;
-            border-bottom: 1px dotted #999;
+            border-bottom: 1px dotted #000;
         }
         
         .item:last-child {
@@ -158,15 +159,15 @@
         .item-details {
             display: flex;
             justify-content: space-between;
-            font-size: 10px;
+            font-size: 11px;
         }
         
         .item-qty-price {
-            color: #333;
+            color: #000;
         }
-        
         .item-total {
             font-weight: bold;
+            font-size: 12px;
             white-space: nowrap;
         }
         
@@ -180,12 +181,13 @@
         .total-row {
             display: flex;
             justify-content: space-between;
-            font-size: 11px;
+            font-size: 12px;
+            font-weight: bold;
             margin-bottom: 2px;
         }
         
         .total-row.grand-total {
-            font-size: 15px;
+            font-size: 16px;
             font-weight: bold;
             padding-top: 4px;
             border-top: 1px dashed #000;
@@ -203,7 +205,8 @@
         .payment-row {
             display: flex;
             justify-content: space-between;
-            font-size: 11px;
+            font-size: 12px;
+            font-weight: bold;
             margin-bottom: 2px;
         }
         
@@ -218,7 +221,7 @@
             font-weight: bold;
             margin-top: 4px;
             padding-top: 4px;
-            border-top: 1px dotted #999;
+            border-top: 1px dotted #000;
         }
         
         /* DIAN Info */
@@ -294,10 +297,10 @@
         
         .powered-by {
             font-size: 9px;
-            color: #555;
+            color: #000;
             margin-top: 6px;
             padding-top: 4px;
-            border-top: 1px dotted #ccc;
+            border-top: 1px dotted #000;
         }
         
         /* Print styles */
@@ -395,6 +398,20 @@
             @if($sale->customer->document_number)
             <div class="customer-doc">{{ $sale->customer->taxDocument->abbreviation ?? 'Doc' }}: {{ $sale->customer->document_number }}</div>
             @endif
+            @if($sale->source === 'ecommerce' && $sale->ecommerceOrder)
+            @if($sale->ecommerceOrder->shipping_address)
+            <div class="customer-doc" style="margin-top: 3px;"><strong>Dir:</strong> {{ $sale->ecommerceOrder->shipping_address }}</div>
+            @endif
+            @if($sale->ecommerceOrder->shippingMunicipality || $sale->ecommerceOrder->shippingDepartment)
+            <div class="customer-doc">{{ $sale->ecommerceOrder->shippingMunicipality?->name }}{{ $sale->ecommerceOrder->shippingDepartment ? ', ' . $sale->ecommerceOrder->shippingDepartment->name : '' }}</div>
+            @endif
+            @if($sale->ecommerceOrder->shipping_phone)
+            <div class="customer-doc"><strong>Tel:</strong> {{ $sale->ecommerceOrder->shipping_phone }}</div>
+            @endif
+            @if($sale->ecommerceOrder->customer_notes)
+            <div class="customer-doc" style="margin-top: 3px; font-style: italic;"><strong>Obs:</strong> {{ $sale->ecommerceOrder->customer_notes }}</div>
+            @endif
+            @endif
             @else
             <span class="customer-type-badge">Persona Natural</span>
             <div class="customer-name">Consumidor Final</div>
@@ -408,12 +425,16 @@
                 <span>Producto</span>
                 <span>Total</span>
             </div>
-            @foreach($sale->items as $item)
+            @foreach($sale->items->where('is_unavailable', false) as $item)
             <div class="item">
                 <div class="item-name">{{ $item->product_name }}</div>
+                @php
+                    $itemPriceWithTax = $item->tax_rate > 0 ? $item->unit_price * (1 + $item->tax_rate / 100) : $item->unit_price;
+                    $itemTotalWithTax = $item->total;
+                @endphp
                 <div class="item-details">
-                    <span class="item-qty-price">{{ rtrim(rtrim(number_format($item->quantity, 3), '0'), '.') }} x ${{ number_format($item->unit_price, 0) }}</span>
-                    <span class="item-total">${{ number_format($item->subtotal, 0) }}</span>
+                    <span class="item-qty-price">{{ rtrim(rtrim(number_format($item->quantity, 3), '0'), '.') }} x ${{ number_format($itemPriceWithTax, 0) }}</span>
+                    <span class="item-total">${{ number_format($itemTotalWithTax, 0) }}</span>
                 </div>
                 @if($item->discount_amount > 0)
                 <div class="item-details" style="font-size: 9px;">
@@ -440,10 +461,19 @@
                 <span>${{ number_format($sale->tax_total, 0) }}</span>
             </div>
             @endif
-            @if($sale->discount > 0)
+            @php
+                $itemDiscounts = $sale->discount - ($sale->global_discount_amount ?? 0);
+            @endphp
+            @if($itemDiscounts > 0)
             <div class="total-row discount">
-                <span>Descuento</span>
-                <span>-${{ number_format($sale->discount, 0) }}</span>
+                <span>Descuento{{ ($sale->global_discount_amount ?? 0) > 0 ? ' (items)' : '' }}</span>
+                <span>-${{ number_format($itemDiscounts, 0) }}</span>
+            </div>
+            @endif
+            @if(($sale->global_discount_amount ?? 0) > 0)
+            <div class="total-row discount">
+                <span>Desc. factura{{ $sale->global_discount_type === 'percentage' ? ' (' . rtrim(rtrim(number_format($sale->global_discount_value, 2), '0'), '.') . '%)' : '' }}</span>
+                <span>-${{ number_format($sale->global_discount_amount, 0) }}</span>
             </div>
             @endif
             <div class="total-row grand-total">
@@ -463,7 +493,7 @@
                 $totalPaid += $payment->amount;
             @endphp
             <div class="payment-row">
-                <span class="payment-method">{{ $payment->paymentMethod->name }}</span>
+                <span class="payment-method">{{ $payment->paymentMethod->name ?? 'N/A' }}</span>
                 <span>${{ number_format($payment->amount, 0) }}</span>
             </div>
             @endforeach
@@ -492,7 +522,7 @@
 
         <!-- Seller -->
         <div class="seller-section">
-            <p><strong>Atendido por:</strong> {{ $sale->user->name }}</p>
+            <p><strong>{{ $sale->source === 'ecommerce' ? 'Origen:' : 'Atendido por:' }}</strong> {{ $sale->source === 'ecommerce' ? 'Tienda en línea' : ($sale->user->name ?? 'N/A') }}</p>
             @if($sale->cashReconciliation && $sale->cashReconciliation->cashRegister)
             <p><strong>Caja:</strong> {{ $sale->cashReconciliation->cashRegister->name }}</p>
             @endif

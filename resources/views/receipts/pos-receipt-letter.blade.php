@@ -167,8 +167,20 @@
                         @if($sale->customer->phone)
                             Tel: {{ $sale->customer->phone }}<br>
                         @endif
-                        @if($sale->customer->address)
-                            {{ $sale->customer->address }}@if($sale->customer->municipality), {{ $sale->customer->municipality->name }}@endif<br>
+                        @if($sale->source === 'ecommerce' && $sale->ecommerceOrder)
+                            @if($sale->ecommerceOrder->shipping_address)
+                                <strong>Dir. envío:</strong> {{ $sale->ecommerceOrder->shipping_address }}<br>
+                            @endif
+                            @if($sale->ecommerceOrder->shippingMunicipality || $sale->ecommerceOrder->shippingDepartment)
+                                {{ $sale->ecommerceOrder->shippingMunicipality?->name }}{{ $sale->ecommerceOrder->shippingDepartment ? ', ' . $sale->ecommerceOrder->shippingDepartment->name : '' }}<br>
+                            @endif
+                            @if($sale->ecommerceOrder->shipping_phone)
+                                Tel. envío: {{ $sale->ecommerceOrder->shipping_phone }}<br>
+                            @endif
+                        @else
+                            @if($sale->customer->address)
+                                {{ $sale->customer->address }}@if($sale->customer->municipality), {{ $sale->customer->municipality->name }}@endif<br>
+                            @endif
                         @endif
                         @if($sale->customer->email)
                             {{ $sale->customer->email }}
@@ -190,7 +202,7 @@
                         <strong>Tipo:</strong> Documento POS<br>
                     @endif
                     <strong>Fecha:</strong> {{ $sale->created_at->format('d/m/Y H:i') }}<br>
-                    <strong>Vendedor:</strong> {{ $sale->user->name }}
+                    <strong>{{ $sale->source === 'ecommerce' ? 'Origen:' : 'Vendedor:' }}</strong> {{ $sale->source === 'ecommerce' ? 'Tienda en línea' : ($sale->user->name ?? 'N/A') }}
                     @if($sale->cashReconciliation && $sale->cashReconciliation->cashRegister)
                         <br><strong>Caja:</strong> {{ $sale->cashReconciliation->cashRegister->name }}
                     @endif
@@ -211,7 +223,7 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach($sale->items as $index => $item)
+                @foreach($sale->items->where('is_unavailable', false)->values() as $index => $item)
                 <tr>
                     <td class="text-center">{{ $index + 1 }}</td>
                     <td>
@@ -226,8 +238,9 @@
                         @endif
                     </td>
                     <td class="text-center">{{ rtrim(rtrim(number_format($item->quantity, 3), '0'), '.') }}</td>
-                    <td class="text-right">${{ number_format($item->unit_price, 2) }}</td>
-                    <td class="text-right">${{ number_format($item->subtotal, 2) }}</td>
+                    @php $letterPriceWithTax = $item->tax_rate > 0 ? $item->unit_price * (1 + $item->tax_rate / 100) : $item->unit_price; @endphp
+                    <td class="text-right">${{ number_format($letterPriceWithTax, 2) }}</td>
+                    <td class="text-right">${{ number_format($item->total, 2) }}</td>
                 </tr>
                 @endforeach
             </tbody>
@@ -251,7 +264,7 @@
                 @if($sale->payments->count() > 0)
                     <br><br><strong>Forma de pago:</strong>
                     @foreach($sale->payments as $payment)
-                        <br>{{ $payment->paymentMethod->name }}: ${{ number_format($payment->amount, 2) }}
+                        <br>{{ $payment->paymentMethod->name ?? 'N/A' }}: ${{ number_format($payment->amount, 2) }}
                     @endforeach
                     @php $totalPaid = $sale->payments->sum('amount'); @endphp
                     @if($totalPaid > $sale->total)
@@ -273,10 +286,19 @@
                     <span>${{ number_format($sale->tax_total, 2) }}</span>
                 </div>
                 @endif
-                @if($sale->discount > 0)
+                @php
+                    $itemDiscounts = $sale->discount - ($sale->global_discount_amount ?? 0);
+                @endphp
+                @if($itemDiscounts > 0)
                 <div class="total-row">
-                    <span>Descuento:</span>
-                    <span>-${{ number_format($sale->discount, 2) }}</span>
+                    <span>Descuento{{ ($sale->global_discount_amount ?? 0) > 0 ? ' (items)' : '' }}:</span>
+                    <span>-${{ number_format($itemDiscounts, 2) }}</span>
+                </div>
+                @endif
+                @if(($sale->global_discount_amount ?? 0) > 0)
+                <div class="total-row">
+                    <span>Desc. factura{{ $sale->global_discount_type === 'percentage' ? ' (' . rtrim(rtrim(number_format($sale->global_discount_value, 2), '0'), '.') . '%)' : '' }}:</span>
+                    <span>-${{ number_format($sale->global_discount_amount, 2) }}</span>
                 </div>
                 @endif
                 <div class="total-row grand-total">

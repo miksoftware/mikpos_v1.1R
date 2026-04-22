@@ -925,7 +925,7 @@ class ImportLegacyData extends Command
 
             $tipoComision = strtoupper(trim($row['tipo_comision'] ?? 'NINGUNA'));
             $hasCommission = $tipoComision !== 'NINGUNA';
-            $commissionType = match ($tipoComision) { 'PORCENTAJE' => 'percentage', 'VALOR' => 'fixed', default => null };
+            $commissionType = match ($tipoComision) { 'PORCENTAJE' => 'percentage', 'VALOR' => 'fixed', default => 'fixed' };
 
             $service = new Service([
                 'branch_id' => $this->branchId, 'name' => $name,
@@ -1297,10 +1297,20 @@ class ImportLegacyData extends Command
         $this->logTableColumns($detailRows, 'detalleventas');
         $count = 0;
 
+        // Get default customer (Consumidor Final) for the branch
+        $defaultCustomerId = Customer::where('is_default', true)
+            ->where('branch_id', $this->branchId)
+            ->value('id');
+
         foreach ($saleRows as $row) {
             $oldCustomerCode = $this->normalizeKey($row['codcliente'] ?? '');
             $customerId = $oldCustomerCode ? ($this->customerMap[$oldCustomerCode] ?? null) : null;
             if ($oldCustomerCode && !$customerId) $this->addWarning('Ventas', 'codcliente', $oldCustomerCode);
+
+            // Assign default customer (Consumidor Final) when no customer found
+            if (!$customerId) {
+                $customerId = $defaultCustomerId;
+            }
 
             $tipoPago = strtolower(trim($row['tipopago'] ?? 'contado'));
             $isCredit = str_contains($tipoPago, 'credito') || str_contains($tipoPago, 'crédito');

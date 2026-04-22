@@ -263,9 +263,23 @@
                                 <p class="font-medium text-slate-800">{{ $viewingPurchase->branch?->name ?? '-' }}</p>
                             </div>
                             @if($viewingPurchase->payment_type === 'cash')
-                            <div>
-                                <p class="text-sm text-slate-500">Método de Pago</p>
-                                <p class="font-medium text-slate-800">{{ $viewingPurchase->paymentMethod?->name ?? '-' }}</p>
+                            <div class="col-span-2 sm:col-span-1">
+                                <p class="text-sm text-slate-500">Método(s) de Pago</p>
+                                @php
+                                    $paymentDetails = $viewingPurchase->payment_details ? json_decode($viewingPurchase->payment_details, true) : null;
+                                @endphp
+                                @if($paymentDetails && count($paymentDetails) > 0)
+                                    <div class="space-y-1 mt-1">
+                                        @foreach($paymentDetails as $pd)
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-slate-700">{{ $pd['payment_method_name'] ?? '-' }}</span>
+                                            <span class="font-medium text-slate-800">${{ number_format($pd['amount'] ?? 0, 2) }}</span>
+                                        </div>
+                                        @endforeach
+                                    </div>
+                                @else
+                                    <p class="font-medium text-slate-800">{{ $viewingPurchase->paymentMethod?->name ?? '-' }}</p>
+                                @endif
                             </div>
                             @else
                             <div>
@@ -329,10 +343,21 @@
                                     <span class="font-medium">${{ number_format($viewingPurchase->tax_amount, 2) }}</span>
                                 </div>
                                 @if($viewingPurchase->discount_amount > 0)
+                                @php
+                                    $purchaseItemDiscounts = $viewingPurchase->discount_amount - ($viewingPurchase->global_discount_amount ?? 0);
+                                @endphp
+                                @if($purchaseItemDiscounts > 0)
                                 <div class="flex justify-between text-sm">
-                                    <span class="text-slate-500">Descuentos</span>
-                                    <span class="font-medium text-green-600">-${{ number_format($viewingPurchase->discount_amount, 2) }}</span>
+                                    <span class="text-slate-500">Desc. productos</span>
+                                    <span class="font-medium text-green-600">-${{ number_format($purchaseItemDiscounts, 2) }}</span>
                                 </div>
+                                @endif
+                                @if(($viewingPurchase->global_discount_amount ?? 0) > 0)
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-purple-600">Desc. compra{{ $viewingPurchase->global_discount_type === 'percentage' ? ' (' . rtrim(rtrim(number_format($viewingPurchase->global_discount_value, 2), '0'), '.') . '%)' : '' }}</span>
+                                    <span class="font-medium text-purple-600">-${{ number_format($viewingPurchase->global_discount_amount, 2) }}</span>
+                                </div>
+                                @endif
                                 @endif
                                 <div class="flex justify-between pt-2 border-t border-slate-200">
                                     <span class="font-semibold text-slate-800">Total</span>

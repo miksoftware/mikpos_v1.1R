@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Builder;
 
 class Sale extends Model
@@ -37,6 +38,11 @@ class Sale extends Model
         'paid_amount',
         'payment_due_date',
         'notes',
+        'global_discount_type',
+        'global_discount_value',
+        'global_discount_amount',
+        'global_discount_reason',
+        'source',
     ];
 
     protected function casts(): array
@@ -52,6 +58,8 @@ class Sale extends Model
             'dian_validated_at' => 'datetime',
             'dian_response' => 'array',
             'payment_due_date' => 'date',
+            'global_discount_value' => 'decimal:2',
+            'global_discount_amount' => 'decimal:2',
         ];
     }
 
@@ -113,6 +121,11 @@ class Sale extends Model
             ->where('reference_type', self::class);
     }
 
+    public function ecommerceOrder(): HasOne
+    {
+        return $this->hasOne(EcommerceOrder::class);
+    }
+
     // Scopes
 
     public function scopeForBranch(Builder $query, ?int $branchId = null): Builder
@@ -133,11 +146,31 @@ class Sale extends Model
         return $query->where('status', 'completed');
     }
 
+    public function scopeEcommerce(Builder $query): Builder
+    {
+        return $query->where('source', 'ecommerce');
+    }
+
+    public function scopePendingApproval(Builder $query): Builder
+    {
+        return $query->where('status', 'pending_approval');
+    }
+
     // Methods
 
     public function isCompleted(): bool
     {
         return $this->status === 'completed';
+    }
+
+    public function isEcommerce(): bool
+    {
+        return $this->source === 'ecommerce';
+    }
+
+    public function isPendingApproval(): bool
+    {
+        return $this->status === 'pending_approval';
     }
 
     /**

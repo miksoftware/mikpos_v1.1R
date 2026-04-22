@@ -32,7 +32,12 @@ class Purchase extends Model
         'paid_amount',
         'partial_payment_method_id',
         'payment_due_date',
+        'payment_details',
         'notes',
+        'global_discount_type',
+        'global_discount_value',
+        'global_discount_amount',
+        'global_discount_reason',
     ];
 
     protected function casts(): array
@@ -47,6 +52,8 @@ class Purchase extends Model
             'total' => 'decimal:2',
             'credit_amount' => 'decimal:2',
             'paid_amount' => 'decimal:2',
+            'global_discount_value' => 'decimal:2',
+            'global_discount_amount' => 'decimal:2',
         ];
     }
 
@@ -79,7 +86,7 @@ class Purchase extends Model
 
     public function items(): HasMany
     {
-        return $this->hasMany(PurchaseItem::class);
+        return $this->hasMany(PurchaseItem::class)->orderBy('id');
     }
 
     public function inventoryMovements(): MorphMany

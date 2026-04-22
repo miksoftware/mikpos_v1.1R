@@ -3,21 +3,30 @@
 namespace App\Livewire;
 
 use App\Models\Branch;
+use App\Models\Brand;
 use App\Models\Category;
 use App\Models\PaymentMethod;
 use App\Models\Product;
+use App\Models\ProductBarcode;
+use App\Models\ProductFieldSetting;
 use App\Models\Purchase;
 use App\Models\PurchaseItem;
+use App\Models\Subcategory;
 use App\Models\Supplier;
+use App\Models\Municipality;
 use App\Models\Tax;
+use App\Models\TaxDocument;
 use App\Models\Unit;
 use App\Services\ActivityLogService;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 
 #[Layout('layouts.app')]
 class PurchaseCreate extends Component
 {
+    use WithFileUploads;
+
     // Edit mode
     public ?int $purchaseId = null;
     public ?Purchase $purchase = null;
@@ -64,14 +73,56 @@ class PurchaseCreate extends Component
     // Quick product creation
     public bool $isQuickCreateOpen = false;
     public string $quickName = '';
+    public string $quickDescription = '';
     public ?int $quickCategoryId = null;
+    public ?int $quickSubcategoryId = null;
+    public ?int $quickBrandId = null;
     public ?int $quickUnitId = null;
     public ?int $quickTaxId = null;
+    public string $quickBarcode = '';
     public float $quickPurchasePrice = 0;
     public float $quickSalePrice = 0;
+    public float $quickSpecialPrice = 0;
+    public bool $quickPriceIncludesTax = false;
+    public float $quickMinStock = 0;
+    public float $quickMaxStock = 0;
+    public bool $quickHasCommission = false;
+    public string $quickCommissionType = 'percentage';
+    public float $quickCommissionValue = 0;
+    public $quickImage = null;
+    public bool $quickIsActive = true;
     public $quickCategories = [];
+    public $quickSubcategories = [];
+    public $quickBrands = [];
     public $quickUnits = [];
     public $quickTaxes = [];
+
+    // Quick supplier creation
+    public bool $isSupplierCreateOpen = false;
+    public string $supplierName = '';
+    public string $supplierPhone = '';
+    public string $supplierDocument = '';
+    public ?int $supplierTaxDocumentId = null;
+    public string $supplierEmail = '';
+    public $supplierDepartmentId = '';
+    public $supplierMunicipalityId = '';
+    public string $supplierAddress = '';
+    public string $supplierSalespersonName = '';
+    public string $supplierSalespersonPhone = '';
+    public array $supplierMunicipalities = [];
+
+    // Multiple payment methods (for cash purchases)
+    public array $purchasePayments = [];
+    public ?int $newPaymentMethodId = null;
+    public ?float $newPaymentAmount = null;
+
+    // Global purchase discount
+    public $showGlobalDiscountModal = false;
+    public $globalDiscountType = 'percentage';
+    public $globalDiscountValue = '';
+    public $globalDiscountReason = '';
+    public $globalDiscountApplied = false;
+    public $globalDiscountAmount = 0;
 
     public function mount(?int $id = null)
     {
@@ -90,6 +141,8 @@ class PurchaseCreate extends Component
 
         if ($id) {
             $this->loadPurchase($id);
+        } else {
+            $this->purchasePayments = [['method_id' => '', 'amount' => '']];
         }
     }
 
@@ -121,6 +174,35 @@ class PurchaseCreate extends Component
         $this->paid_amount = (float) $this->purchase->paid_amount;
         $this->partial_payment_method_id = $this->purchase->partial_payment_method_id;
         $this->payment_due_date = $this->purchase->payment_due_date?->format('Y-m-d');
+
+        // Load global discount
+        if ($this->purchase->global_discount_type) {
+            $this->globalDiscountApplied = true;
+            $this->globalDiscountType = $this->purchase->global_discount_type;
+            $this->globalDiscountValue = (string) $this->purchase->global_discount_value;
+            $this->globalDiscountReason = $this->purchase->global_discount_reason ?? '';
+            $this->globalDiscountAmount = (float) $this->purchase->global_discount_amount;
+        }
+
+        // Load multiple payment methods
+        if ($this->payment_type === 'cash' && $this->purchase->payment_details) {
+            $details = json_decode($this->purchase->payment_details, true);
+            if (is_array($details) && !empty($details)) {
+                $this->purchasePayments = array_map(fn($d) => [
+                    'method_id' => $d['payment_method_id'] ?? '',
+                    'amount' => $d['amount'] ?? '',
+                ], $details);
+            } else {
+                $this->purchasePayments = $this->payment_method_id
+                    ? [['method_id' => $this->payment_method_id, 'amount' => (float) $this->purchase->total]]
+                    : [['method_id' => '', 'amount' => '']];
+            }
+        } elseif ($this->payment_type === 'cash') {
+            // Legacy: single payment method
+            $this->purchasePayments = $this->payment_method_id
+                ? [['method_id' => $this->payment_method_id, 'amount' => (float) $this->purchase->total]]
+                : [['method_id' => '', 'amount' => '']];
+        }
 
         // Load items
         foreach ($this->purchase->items as $item) {
@@ -358,6 +440,10 @@ class PurchaseCreate extends Component
     public function clearCart()
     {
         $this->cartItems = [];
+        $this->globalDiscountApplied = false;
+        $this->globalDiscountAmount = 0;
+        $this->globalDiscountValue = '';
+        $this->globalDiscountReason = '';
         $this->calculateTotals();
     }
 
@@ -390,7 +476,21 @@ class PurchaseCreate extends Component
         $this->subtotal = collect($this->cartItems)->sum('subtotal');
         $this->taxAmount = collect($this->cartItems)->sum('tax_amount');
         $this->discountAmount = collect($this->cartItems)->sum('discount');
-        $this->total = $this->subtotal + $this->taxAmount - $this->discountAmount;
+        $baseTotal = $this->subtotal + $this->taxAmount - $this->discountAmount;
+
+        // Recalculate global discount amount if applied (percentage may change with cart changes)
+        if ($this->globalDiscountApplied) {
+            $value = (float) str_replace(',', '.', $this->globalDiscountValue);
+            if ($this->globalDiscountType === 'percentage' && $value > 0) {
+                $this->globalDiscountAmount = round($baseTotal * ($value / 100), 2);
+            }
+            // For fixed, keep the amount as-is but cap it
+            if ($this->globalDiscountAmount > $baseTotal) {
+                $this->globalDiscountAmount = $baseTotal;
+            }
+        }
+
+        $this->total = $baseTotal - $this->globalDiscountAmount;
 
         // Auto-set credit amount if credit type
         if ($this->payment_type === 'credit' && !$this->credit_amount) {
@@ -412,10 +512,189 @@ class PurchaseCreate extends Component
             $this->paid_amount = 0;
             $this->partial_payment_method_id = null;
             $this->payment_due_date = null;
+            // Initialize with one empty payment row if none exist
+            if (empty($this->purchasePayments)) {
+                $this->purchasePayments = [['method_id' => '', 'amount' => '']];
+            }
         } else {
             $this->payment_method_id = null;
+            $this->purchasePayments = [];
             $this->credit_amount = $this->total;
         }
+    }
+
+    public function addPaymentRow()
+    {
+        $this->purchasePayments[] = ['method_id' => '', 'amount' => ''];
+    }
+
+    public function removePaymentRow(int $index)
+    {
+        if (count($this->purchasePayments) > 1) {
+            array_splice($this->purchasePayments, $index, 1);
+            $this->purchasePayments = array_values($this->purchasePayments);
+        }
+    }
+
+    public function fillRemainingPayment(int $index)
+    {
+        $allocated = 0;
+        foreach ($this->purchasePayments as $i => $p) {
+            if ($i !== $index) {
+                $allocated += floatval($p['amount'] ?? 0);
+            }
+        }
+        $remaining = round($this->total - $allocated, 2);
+        if ($remaining > 0) {
+            $this->purchasePayments[$index]['amount'] = $remaining;
+        }
+    }
+
+    public function openGlobalDiscountModal()
+    {
+        if (empty($this->cartItems)) {
+            $this->dispatch('notify', message: 'Agrega productos primero', type: 'warning');
+            return;
+        }
+
+        if (!$this->globalDiscountApplied) {
+            $this->globalDiscountType = 'percentage';
+            $this->globalDiscountValue = '';
+            $this->globalDiscountReason = '';
+        }
+
+        $this->showGlobalDiscountModal = true;
+    }
+
+    public function applyGlobalDiscount()
+    {
+        $value = (float) str_replace(',', '.', $this->globalDiscountValue);
+
+        if ($value < 0) {
+            $this->dispatch('notify', message: 'El descuento no puede ser negativo', type: 'error');
+            return;
+        }
+
+        if ($this->globalDiscountType === 'percentage' && $value > 100) {
+            $this->dispatch('notify', message: 'El porcentaje no puede ser mayor a 100%', type: 'error');
+            return;
+        }
+
+        $baseTotal = $this->subtotal + $this->taxAmount - $this->discountAmount;
+
+        if ($value > 0) {
+            if ($this->globalDiscountType === 'percentage') {
+                $discountAmount = round($baseTotal * ($value / 100), 2);
+            } else {
+                $discountAmount = round($value, 2);
+            }
+
+            if ($discountAmount > $baseTotal) {
+                $this->dispatch('notify', message: 'El descuento no puede ser mayor al total', type: 'error');
+                return;
+            }
+
+            $this->globalDiscountApplied = true;
+            $this->globalDiscountAmount = $discountAmount;
+        } else {
+            $this->globalDiscountApplied = false;
+            $this->globalDiscountAmount = 0;
+        }
+
+        $this->calculateTotals();
+        $this->showGlobalDiscountModal = false;
+        $this->dispatch('notify', message: $value > 0 ? 'Descuento global aplicado' : 'Descuento global eliminado');
+    }
+
+    public function removeGlobalDiscount()
+    {
+        $this->globalDiscountApplied = false;
+        $this->globalDiscountAmount = 0;
+        $this->globalDiscountValue = '';
+        $this->globalDiscountReason = '';
+        $this->calculateTotals();
+        $this->dispatch('notify', message: 'Descuento global eliminado');
+    }
+
+    public function closeGlobalDiscountModal()
+    {
+        $this->showGlobalDiscountModal = false;
+    }
+
+    // Supplier quick create
+    public function openSupplierCreate()
+    {
+        $this->supplierName = '';
+        $this->supplierPhone = '';
+        $this->supplierDocument = '';
+        $this->supplierTaxDocumentId = null;
+        $this->supplierEmail = '';
+        $this->supplierDepartmentId = '';
+        $this->supplierMunicipalityId = '';
+        $this->supplierAddress = '';
+        $this->supplierSalespersonName = '';
+        $this->supplierSalespersonPhone = '';
+        $this->supplierMunicipalities = [];
+        $this->resetValidation();
+        $this->isSupplierCreateOpen = true;
+    }
+
+    public function updatedSupplierDepartmentId()
+    {
+        $this->supplierMunicipalityId = '';
+        $this->supplierMunicipalities = $this->supplierDepartmentId
+            ? Municipality::where('department_id', $this->supplierDepartmentId)
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get()
+                ->map(fn($m) => ['id' => $m->id, 'name' => $m->name])
+                ->toArray()
+            : [];
+    }
+
+    public function storeQuickSupplier()
+    {
+        $this->validate([
+            'supplierName' => 'required|min:2',
+            'supplierTaxDocumentId' => 'required|exists:tax_documents,id',
+            'supplierDocument' => 'required|string|unique:suppliers,document_number',
+            'supplierDepartmentId' => 'required|exists:departments,id',
+            'supplierMunicipalityId' => 'required|exists:municipalities,id',
+            'supplierAddress' => 'required|string|min:5',
+        ], [
+            'supplierName.required' => 'El nombre es obligatorio',
+            'supplierName.min' => 'Mínimo 2 caracteres',
+            'supplierTaxDocumentId.required' => 'Selecciona un tipo de documento',
+            'supplierDocument.required' => 'El número de documento es obligatorio',
+            'supplierDocument.unique' => 'Este documento ya está registrado',
+            'supplierDepartmentId.required' => 'Selecciona un departamento',
+            'supplierMunicipalityId.required' => 'Selecciona un municipio',
+            'supplierAddress.required' => 'La dirección es obligatoria',
+            'supplierAddress.min' => 'Mínimo 5 caracteres',
+        ]);
+
+        $supplier = Supplier::create([
+            'name' => mb_strtoupper($this->supplierName),
+            'tax_document_id' => $this->supplierTaxDocumentId,
+            'document_number' => $this->supplierDocument,
+            'phone' => $this->supplierPhone ?: null,
+            'email' => $this->supplierEmail ?: null,
+            'department_id' => $this->supplierDepartmentId,
+            'municipality_id' => $this->supplierMunicipalityId,
+            'address' => $this->supplierAddress,
+            'salesperson_name' => $this->supplierSalespersonName ?: null,
+            'salesperson_phone' => $this->supplierSalespersonPhone ?: null,
+            'is_active' => true,
+        ]);
+
+        ActivityLogService::logCreate('suppliers', $supplier, "Proveedor '{$supplier->name}' creado desde compras");
+
+        // Refresh suppliers list and select the new one
+        $this->suppliers = Supplier::where('is_active', true)->orderBy('name')->get();
+        $this->supplier_id = $supplier->id;
+        $this->isSupplierCreateOpen = false;
+
+        $this->dispatch('notify', message: 'Proveedor creado correctamente', type: 'success');
     }
 
     public function saveDraft()
@@ -426,17 +705,40 @@ class PurchaseCreate extends Component
     public function openQuickCreate()
     {
         $this->quickCategories = Category::where('is_active', true)->orderBy('name')->get();
+        $this->quickSubcategories = [];
+        $this->quickBrands = Brand::where('is_active', true)->orderBy('name')->get();
         $this->quickUnits = Unit::where('is_active', true)->orderBy('name')->get();
         $this->quickTaxes = Tax::where('is_active', true)->orderBy('name')->get();
 
         $this->quickName = mb_strtoupper($this->productSearch);
+        $this->quickDescription = '';
         $this->quickCategoryId = null;
+        $this->quickSubcategoryId = null;
+        $this->quickBrandId = null;
         $this->quickUnitId = null;
         $this->quickTaxId = null;
+        $this->quickBarcode = '';
         $this->quickPurchasePrice = 0;
         $this->quickSalePrice = 0;
+        $this->quickSpecialPrice = 0;
+        $this->quickPriceIncludesTax = false;
+        $this->quickMinStock = 0;
+        $this->quickMaxStock = 0;
+        $this->quickHasCommission = false;
+        $this->quickCommissionType = 'percentage';
+        $this->quickCommissionValue = 0;
+        $this->quickImage = null;
+        $this->quickIsActive = true;
 
         $this->isQuickCreateOpen = true;
+    }
+
+    public function updatedQuickCategoryId($value)
+    {
+        $this->quickSubcategoryId = null;
+        $this->quickSubcategories = $value
+            ? Subcategory::where('category_id', $value)->where('is_active', true)->orderBy('name')->get()
+            : [];
     }
 
     public function storeQuickProduct()
@@ -452,6 +754,11 @@ class PurchaseCreate extends Component
             'quickUnitId' => 'required|exists:units,id',
             'quickPurchasePrice' => 'required|numeric|min:0',
             'quickSalePrice' => 'required|numeric|min:0',
+            'quickBarcode' => 'nullable|string',
+            'quickImage' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'quickMinStock' => 'nullable|numeric|min:0',
+            'quickMaxStock' => 'nullable|numeric|min:0',
+            'quickSpecialPrice' => 'nullable|numeric|min:0',
         ], [
             'quickName.required' => 'El nombre es obligatorio',
             'quickName.min' => 'El nombre debe tener al menos 2 caracteres',
@@ -459,25 +766,56 @@ class PurchaseCreate extends Component
             'quickUnitId.required' => 'La unidad es obligatoria',
             'quickPurchasePrice.required' => 'El precio de compra es obligatorio',
             'quickSalePrice.required' => 'El precio de venta es obligatorio',
+            'quickImage.image' => 'El archivo debe ser una imagen',
+            'quickImage.mimes' => 'La imagen debe ser JPG, PNG o WebP',
+            'quickImage.max' => 'La imagen no debe superar 2MB',
         ]);
 
         $branchId = $this->needsBranchSelection ? $this->branch_id : auth()->user()->branch_id;
 
+        // Handle image upload
+        $imagePath = null;
+        if ($this->quickImage) {
+            $imagePath = $this->quickImage->store('products', 'public');
+        }
+
         $product = Product::create([
             'branch_id' => $branchId,
             'name' => mb_strtoupper($this->quickName),
+            'description' => $this->quickDescription ? mb_strtoupper($this->quickDescription) : null,
             'category_id' => $this->quickCategoryId,
+            'subcategory_id' => $this->quickSubcategoryId ?: null,
+            'brand_id' => $this->quickBrandId ?: null,
             'unit_id' => $this->quickUnitId,
             'tax_id' => $this->quickTaxId ?: null,
+            'barcode' => $this->quickBarcode ?: null,
             'purchase_price' => $this->quickPurchasePrice,
             'sale_price' => $this->quickSalePrice,
+            'special_price' => $this->quickSpecialPrice ?: null,
+            'price_includes_tax' => $this->quickPriceIncludesTax,
             'current_stock' => 0,
-            'min_stock' => 0,
-            'is_active' => true,
+            'min_stock' => $this->quickMinStock,
+            'max_stock' => $this->quickMaxStock ?: null,
+            'has_commission' => $this->quickHasCommission,
+            'commission_type' => $this->quickHasCommission ? $this->quickCommissionType : null,
+            'commission_value' => $this->quickHasCommission ? $this->quickCommissionValue : null,
+            'is_active' => $this->quickIsActive,
+            'image' => $imagePath,
         ]);
 
         $product->generateSku();
         $product->save();
+
+        // Save barcode to product_barcodes table
+        if ($this->quickBarcode) {
+            ProductBarcode::create([
+                'product_id' => $product->id,
+                'product_child_id' => null,
+                'barcode' => $this->quickBarcode,
+                'description' => 'Código principal',
+                'is_primary' => true,
+            ]);
+        }
 
         ActivityLogService::logCreate('products', $product, "Producto '{$product->name}' creado desde compras");
 
@@ -528,8 +866,27 @@ class PurchaseCreate extends Component
         }
 
         if ($this->payment_type === 'cash') {
-            $rules['payment_method_id'] = 'required|exists:payment_methods,id';
-            $messages['payment_method_id.required'] = 'Selecciona un método de pago';
+            // Validate multiple payments
+            if (empty($this->purchasePayments)) {
+                $this->dispatch('notify', message: 'Agrega al menos un método de pago', type: 'error');
+                return;
+            }
+            foreach ($this->purchasePayments as $i => $payment) {
+                if (empty($payment['method_id'])) {
+                    $this->dispatch('notify', message: 'Selecciona el método de pago en la fila ' . ($i + 1), type: 'error');
+                    return;
+                }
+                if (!is_numeric($payment['amount'] ?? '') || floatval($payment['amount']) <= 0) {
+                    $this->dispatch('notify', message: 'El monto debe ser mayor a 0 en la fila ' . ($i + 1), type: 'error');
+                    return;
+                }
+            }
+            // Validate total matches
+            $paymentTotal = array_sum(array_map(fn($p) => floatval($p['amount'] ?? 0), $this->purchasePayments));
+            if (abs($paymentTotal - $this->total) > 0.01) {
+                $this->dispatch('notify', message: 'El total de los pagos ($' . number_format($paymentTotal, 2) . ') no coincide con el total de la compra ($' . number_format($this->total, 2) . ')', type: 'error');
+                return;
+            }
         } else {
             $rules['credit_amount'] = 'required|numeric|min:0';
             $rules['payment_due_date'] = 'required|date';
@@ -542,6 +899,12 @@ class PurchaseCreate extends Component
         // Determine branch_id
         $branchId = $this->needsBranchSelection ? $this->branch_id : auth()->user()->branch_id;
 
+        // For cash: use first payment method as the main one (backward compatibility)
+        $mainPaymentMethodId = null;
+        if ($this->payment_type === 'cash' && !empty($this->purchasePayments)) {
+            $mainPaymentMethodId = $this->purchasePayments[0]['method_id'];
+        }
+
         $purchaseData = [
             'supplier_id' => $this->supplier_id,
             'branch_id' => $branchId,
@@ -551,16 +914,36 @@ class PurchaseCreate extends Component
             'due_date' => $this->due_date ?: null,
             'subtotal' => $this->subtotal,
             'tax_amount' => $this->taxAmount,
-            'discount_amount' => $this->discountAmount,
+            'discount_amount' => $this->discountAmount + $this->globalDiscountAmount,
             'total' => $this->total,
             'payment_type' => $this->payment_type,
-            'payment_method_id' => $this->payment_type === 'cash' ? $this->payment_method_id : null,
+            'payment_method_id' => $mainPaymentMethodId,
             'credit_amount' => $this->payment_type === 'credit' ? $this->credit_amount : null,
             'paid_amount' => $this->payment_type === 'credit' ? $this->paid_amount : 0,
             'partial_payment_method_id' => $this->payment_type === 'credit' && $this->paid_amount > 0 ? $this->partial_payment_method_id : null,
             'payment_due_date' => $this->payment_type === 'credit' ? $this->payment_due_date : null,
             'notes' => $this->notes ?: null,
+            'global_discount_type' => $this->globalDiscountApplied ? $this->globalDiscountType : null,
+            'global_discount_value' => $this->globalDiscountApplied ? (float) str_replace(',', '.', $this->globalDiscountValue) : 0,
+            'global_discount_amount' => $this->globalDiscountAmount,
+            'global_discount_reason' => $this->globalDiscountApplied && trim($this->globalDiscountReason) ? trim($this->globalDiscountReason) : null,
         ];
+
+        // Build payment details JSON for multiple payments
+        if ($this->payment_type === 'cash' && count($this->purchasePayments) > 0) {
+            $paymentDetails = [];
+            foreach ($this->purchasePayments as $p) {
+                $method = PaymentMethod::find($p['method_id']);
+                $paymentDetails[] = [
+                    'payment_method_id' => (int) $p['method_id'],
+                    'payment_method_name' => $method?->name ?? '',
+                    'amount' => round(floatval($p['amount']), 2),
+                ];
+            }
+            $purchaseData['payment_details'] = json_encode($paymentDetails);
+        } else {
+            $purchaseData['payment_details'] = null;
+        }
 
         // Determine payment status
         if ($this->payment_type === 'cash') {

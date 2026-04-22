@@ -14,7 +14,6 @@ class Product extends Model
 
     protected $fillable = [
         'branch_id',
-        'product_type',
         'sku',
         'barcode',
         'name',
@@ -39,6 +38,8 @@ class Product extends Model
         'max_stock',
         'current_stock',
         'is_active',
+        'manages_inventory',
+        'show_in_shop',
         'has_commission',
         'commission_type',
         'commission_value',
@@ -48,6 +49,8 @@ class Product extends Model
     {
         return [
             'is_active' => 'boolean',
+            'manages_inventory' => 'boolean',
+            'show_in_shop' => 'boolean',
             'price_includes_tax' => 'boolean',
             'has_commission' => 'boolean',
             'purchase_price' => 'decimal:2',
@@ -125,35 +128,6 @@ class Product extends Model
     public function barcodes(): HasMany
     {
         return $this->hasMany(ProductBarcode::class)->whereNull('product_child_id');
-    }
-
-    public function productIngredients(): HasMany
-    {
-        return $this->hasMany(ProductIngredient::class)->orderBy('sort_order');
-    }
-
-    public function ingredients(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
-    {
-        return $this->belongsToMany(Ingredient::class, 'product_ingredients')
-            ->withPivot('quantity', 'sort_order')
-            ->orderByPivot('sort_order');
-    }
-
-    public function productIngredientGroups(): HasMany
-    {
-        return $this->hasMany(ProductIngredientGroup::class)->orderBy('sort_order');
-    }
-
-    public function ingredientGroups(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
-    {
-        return $this->belongsToMany(IngredientGroup::class, 'product_ingredient_groups')
-            ->withPivot('sort_order')
-            ->orderByPivot('sort_order');
-    }
-
-    public function isComposite(): bool
-    {
-        return $this->product_type === 'composite';
     }
 
     /**
@@ -363,6 +337,9 @@ class Product extends Model
      */
     public function isLowStock(): bool
     {
+        if (!$this->manages_inventory) {
+            return false;
+        }
         return $this->current_stock <= $this->min_stock;
     }
 

@@ -112,6 +112,37 @@
         </div>
     </div>
 
+    {{-- Bulk Shop Toggle Bar --}}
+    @if($ecommerceEnabled)
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input wire:model.live="selectAllShop" type="checkbox" class="w-4 h-4 rounded border-slate-300 text-[#ff7261] focus:ring-[#ff7261]">
+                    <span class="text-sm font-medium text-slate-700">Seleccionar todos</span>
+                </label>
+                @if(count($selectedShopProducts) > 0)
+                <span class="text-sm text-slate-500">({{ count($selectedShopProducts) }} seleccionados)</span>
+                @endif
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-sm text-slate-500 mr-1">
+                    <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z"></path></svg>
+                    Tienda en línea:
+                </span>
+                <button wire:click="bulkToggleShop(true)" class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors disabled:opacity-50" {{ count($selectedShopProducts) === 0 ? 'disabled' : '' }}>
+                    <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                    Mostrar
+                </button>
+                <button wire:click="bulkToggleShop(false)" class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50" {{ count($selectedShopProducts) === 0 ? 'disabled' : '' }}>
+                    <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"></path></svg>
+                    Ocultar
+                </button>
+            </div>
+        </div>
+    </div>
+    @endif
+
     {{-- Products Table --}}
     <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div class="overflow-x-auto">
@@ -171,6 +202,9 @@
                         </td>
                         <td class="px-6 py-4">
                             <div class="flex items-center gap-3">
+                                @if($ecommerceEnabled)
+                                <input wire:model.live="selectedShopProducts" value="{{ $item->id }}" type="checkbox" class="w-4 h-4 rounded border-slate-300 text-[#ff7261] focus:ring-[#ff7261] flex-shrink-0">
+                                @endif
                                 @if($item->image)
                                 <img src="{{ Storage::url($item->image) }}" alt="{{ $item->name }}" class="w-10 h-10 rounded-lg object-cover">
                                 @else
@@ -179,10 +213,16 @@
                                 </div>
                                 @endif
                                 <div>
-                                    <div class="font-medium text-slate-900">
+                                    <div class="font-medium text-slate-900 flex items-center gap-1.5">
                                         {{ $item->name }}
-                                        @if($item->product_type === 'composite')
-                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 ml-1">Compuesto</span>
+                                        @if($ecommerceEnabled)
+                                        <button wire:click="toggleShopVisibility({{ $item->id }})" class="p-0.5 rounded transition-colors {{ $item->show_in_shop ? 'text-green-500 hover:text-green-700' : 'text-slate-300 hover:text-slate-500' }}" title="{{ $item->show_in_shop ? 'Visible en tienda' : 'Oculto en tienda' }}">
+                                            @if($item->show_in_shop)
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                                            @else
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"></path></svg>
+                                            @endif
+                                        </button>
                                         @endif
                                     </div>
                                     <div class="text-sm text-slate-500">SKU: {{ $item->sku ?? 'Sin SKU' }}</div>
@@ -221,11 +261,15 @@
                             @endif
                         </td>
                         <td class="px-6 py-4 text-center">
+                            @if($item->manages_inventory)
                             <span class="text-sm {{ $item->isLowStock() ? 'text-amber-600 font-medium' : 'text-slate-600' }}">
-                                {{ $item->current_stock }} {{ $item->unit?->abbreviation ?? 'und' }}
+                                {{ rtrim(rtrim(number_format($item->current_stock, 3), '0'), '.') }} {{ $item->unit?->abbreviation ?? 'und' }}
                             </span>
                             @if($item->isLowStock())
                             <div class="text-xs text-amber-500">Stock bajo</div>
+                            @endif
+                            @else
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">Sin inventario</span>
                             @endif
                         </td>
                         <td class="px-6 py-4 text-center">
@@ -286,7 +330,18 @@
                                 </div>
                                 @endif
                                 <div>
-                                    <div class="font-medium text-slate-700 text-sm">{{ $child->name }}</div>
+                                    <div class="font-medium text-slate-700 text-sm flex items-center gap-1.5">
+                                        {{ $child->name }}
+                                        @if($ecommerceEnabled)
+                                        <button wire:click="toggleChildShopVisibility({{ $child->id }})" class="p-0.5 rounded transition-colors {{ $child->show_in_shop ? 'text-green-500 hover:text-green-700' : 'text-slate-300 hover:text-slate-500' }}" title="{{ $child->show_in_shop ? 'Visible en tienda' : 'Oculto en tienda' }}">
+                                            @if($child->show_in_shop)
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                                            @else
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"></path></svg>
+                                            @endif
+                                        </button>
+                                        @endif
+                                    </div>
                                     <div class="text-xs text-slate-500">
                                         @if($child->sku)SKU: {{ $child->sku }}@endif
                                         @if($child->barcode) · {{ $child->barcode }}@endif
@@ -327,7 +382,7 @@
                         </td>
                         <td class="px-6 py-3 text-center">
                             <span class="text-sm text-slate-500" title="Stock del producto padre">
-                                {{ $item->current_stock }} {{ $item->unit?->abbreviation ?? 'und' }}
+                                {{ rtrim(rtrim(number_format($item->current_stock, 3), '0'), '.') }} {{ $item->unit?->abbreviation ?? 'und' }}
                             </span>
                             <div class="text-xs text-slate-400">(padre)</div>
                         </td>
@@ -428,32 +483,6 @@
                             </div>
                         </div>
                         @endif
-
-                        {{-- Product Type Selector --}}
-                        <div>
-                            <h4 class="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
-                                Tipo de Producto
-                            </h4>
-                            <div class="grid grid-cols-2 gap-3" x-data>
-                                <button type="button" wire:click="$set('product_type', 'independent')"
-                                    class="p-3 rounded-xl border-2 transition-all text-left {{ $product_type === 'independent' ? 'border-[#ff7261] bg-orange-50' : 'border-slate-200 hover:border-slate-300' }}">
-                                    <div class="flex items-center gap-2 mb-1">
-                                        <svg class="w-5 h-5 {{ $product_type === 'independent' ? 'text-[#ff7261]' : 'text-slate-400' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
-                                        <span class="font-medium text-sm {{ $product_type === 'independent' ? 'text-[#ff7261]' : 'text-slate-700' }}">Independiente</span>
-                                    </div>
-                                    <p class="text-xs text-slate-500">Se vende tal cual, sin ingredientes</p>
-                                </button>
-                                <button type="button" wire:click="$set('product_type', 'composite')"
-                                    class="p-3 rounded-xl border-2 transition-all text-left {{ $product_type === 'composite' ? 'border-purple-500 bg-purple-50' : 'border-slate-200 hover:border-slate-300' }}">
-                                    <div class="flex items-center gap-2 mb-1">
-                                        <svg class="w-5 h-5 {{ $product_type === 'composite' ? 'text-purple-600' : 'text-slate-400' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
-                                        <span class="font-medium text-sm {{ $product_type === 'composite' ? 'text-purple-600' : 'text-slate-700' }}">Compuesto</span>
-                                    </div>
-                                    <p class="text-xs text-slate-500">Se arma con ingredientes</p>
-                                </button>
-                            </div>
-                        </div>
 
                         <div>
                             <h4 class="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
@@ -721,6 +750,18 @@
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
                                 Inventario
                             </h4>
+                            <div class="mb-4">
+                                <label class="flex items-center gap-3 cursor-pointer" wire:click.prevent="$toggle('manages_inventory')">
+                                    <div class="relative">
+                                        <div class="w-10 h-5 rounded-full transition-colors duration-200 {{ $manages_inventory ? 'bg-gradient-to-r from-[#ff7261] to-[#a855f7]' : 'bg-slate-300' }}">
+                                            <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 {{ $manages_inventory ? 'translate-x-5' : '' }}"></div>
+                                        </div>
+                                    </div>
+                                    <span class="text-sm font-medium text-slate-700">Maneja inventario</span>
+                                </label>
+                                <p class="text-xs text-slate-500 mt-1 ml-[52px]">Si se desactiva, el producto se podrá vender sin control de stock.</p>
+                            </div>
+                            @if($manages_inventory)
                             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                 <div>
                                     <label class="block text-sm font-medium text-slate-700 mb-1">Stock Inicial *</label>
@@ -738,7 +779,21 @@
                                     @error('max_stock')<span class="text-red-500 text-sm">{{ $message }}</span>@enderror
                                 </div>
                             </div>
+                            @endif
                         </div>
+                        @if($ecommerceEnabled)
+                        <div>
+                            <label class="flex items-center gap-3 cursor-pointer" wire:click.prevent="$toggle('show_in_shop')">
+                                <div class="relative">
+                                    <div class="w-10 h-5 rounded-full transition-colors duration-200 {{ $show_in_shop ? 'bg-gradient-to-r from-[#ff7261] to-[#a855f7]' : 'bg-slate-300' }}">
+                                        <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 {{ $show_in_shop ? 'translate-x-5' : '' }}"></div>
+                                    </div>
+                                </div>
+                                <span class="text-sm font-medium text-slate-700">Mostrar en tienda en línea</span>
+                            </label>
+                            <p class="text-xs text-slate-500 mt-1 ml-[52px]">Si se desactiva, el producto no aparecerá en la tienda en línea.</p>
+                        </div>
+                        @endif
                         <div>
                             <h4 class="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z"></path></svg>
@@ -874,83 +929,6 @@
                                 </div>
                             </div>
                         </div>
-
-                        {{-- Composite Product: Ingredients Section --}}
-                        @if($product_type === 'composite')
-                        <div class="border border-purple-200 bg-purple-50/50 rounded-xl p-4 space-y-4">
-                            <h4 class="text-sm font-semibold text-purple-700 flex items-center gap-2">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
-                                Ingredientes Fijos
-                            </h4>
-                            <p class="text-xs text-slate-500">Ingredientes que siempre se consumen al vender este producto.</p>
-
-                            @if(count($productIngredients) > 0)
-                            <div class="space-y-2">
-                                @foreach($productIngredients as $index => $pi)
-                                <div class="flex items-center gap-2" wire:key="pi-{{ $index }}">
-                                    <select wire:model="productIngredients.{{ $index }}.ingredient_id" class="flex-1 px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500">
-                                        <option value="">Seleccionar ingrediente...</option>
-                                        @foreach($availableIngredients as $ing)
-                                        <option value="{{ $ing->id }}">{{ $ing->name }} ({{ $ing->unit?->abbreviation }})</option>
-                                        @endforeach
-                                    </select>
-                                    <input wire:model="productIngredients.{{ $index }}.quantity" type="number" step="0.001" min="0.001" class="w-24 px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" placeholder="Cant.">
-                                    <button wire:click="removeProductIngredient({{ $index }})" type="button" class="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                                    </button>
-                                </div>
-                                @endforeach
-                            </div>
-                            @endif
-                            <button wire:click="addProductIngredient" type="button" class="text-xs text-purple-600 hover:text-purple-800 font-medium flex items-center gap-1">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
-                                Agregar ingrediente fijo
-                            </button>
-
-                            {{-- Ingredient Groups (variable/interchangeable) --}}
-                            <div class="border-t border-purple-200 pt-4 mt-4">
-                                <h4 class="text-sm font-semibold text-purple-700 mb-1">Grupos Intercambiables</h4>
-                                <p class="text-xs text-slate-500 mb-3">Grupos donde el cajero elige una opción al vender (ej: tipo de cerveza).</p>
-
-                                @if(count($productIngredientGroups) > 0)
-                                <div class="space-y-2 mb-3">
-                                    @foreach($productIngredientGroups as $index => $groupId)
-                                    @php $group = $availableIngredientGroups->firstWhere('id', $groupId); @endphp
-                                    @if($group)
-                                    <div class="flex items-center justify-between p-2.5 bg-white rounded-xl border border-purple-100">
-                                        <div>
-                                            <span class="text-sm font-medium text-slate-900">{{ $group->name }}</span>
-                                            <span class="text-xs text-purple-500 ml-1">({{ $group->options_count }} opciones)</span>
-                                        </div>
-                                        <button wire:click="removeProductIngredientGroup({{ $index }})" type="button" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                                        </button>
-                                    </div>
-                                    @endif
-                                    @endforeach
-                                </div>
-                                @endif
-
-                                <div x-data="{ selectedGroup: '' }" class="flex items-center gap-2">
-                                    <select x-model="selectedGroup" class="flex-1 px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500">
-                                        <option value="">Seleccionar grupo...</option>
-                                        @foreach($availableIngredientGroups as $grp)
-                                            @if(!in_array($grp->id, $productIngredientGroups))
-                                            <option value="{{ $grp->id }}">{{ $grp->name }} ({{ $grp->options_count }} opciones)</option>
-                                            @endif
-                                        @endforeach
-                                    </select>
-                                    <button @click="if(selectedGroup) { $wire.addProductIngredientGroup(parseInt(selectedGroup)); selectedGroup = ''; }" type="button" class="px-3 py-2 text-sm font-medium text-purple-600 bg-white border border-purple-300 rounded-xl hover:bg-purple-50 transition-colors">
-                                        Agregar
-                                    </button>
-                                </div>
-                            </div>
-
-                            @if(count($productIngredients) === 0 && count($productIngredientGroups) === 0)
-                            <p class="text-xs text-amber-600 bg-amber-50 p-2 rounded-lg">Agrega al menos un ingrediente fijo o un grupo intercambiable.</p>
-                            @endif
-                        </div>
-                        @endif
                     </div>
                     <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
                         <button wire:click="$set('isModalOpen', false)" class="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50">Cancelar</button>
@@ -1028,7 +1006,7 @@
                                 </div>
                                 <div>
                                     <span class="text-slate-500">Stock Actual:</span>
-                                    <p class="font-medium text-slate-700">{{ $parentProduct->current_stock }} {{ $parentProduct->unit?->abbreviation ?? 'und' }}</p>
+                                    <p class="font-medium text-slate-700">{{ rtrim(rtrim(number_format($parentProduct->current_stock, 3), '0'), '.') }} {{ $parentProduct->unit?->abbreviation ?? 'und' }}</p>
                                 </div>
                             </div>
                         </div>
@@ -1195,7 +1173,7 @@
                                 </div>
                                 <p class="text-xs text-blue-600 mt-1">= ${{ number_format($parentProduct?->purchase_price ?? 0, 2) }} × <span x-text="unitQuantity"></span> {{ $parentProduct?->unit?->abbreviation ?? 'und' }}</p>
                             </div>
-                            <div class="grid grid-cols-1 gap-4">
+                            <div class="grid grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-sm font-medium text-slate-700 mb-1">Precio Venta *</label>
                                     <div class="relative">
@@ -1203,6 +1181,14 @@
                                         <input wire:model.live="childSalePrice" x-model.number="salePrice" type="number" step="0.01" min="0" class="w-full pl-7 pr-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]" placeholder="0.00">
                                     </div>
                                     @error('childSalePrice')<span class="text-red-500 text-sm">{{ $message }}</span>@enderror
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-700 mb-1">Precio Especial</label>
+                                    <div class="relative">
+                                        <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">$</span>
+                                        <input wire:model="childSpecialPrice" type="number" step="0.01" min="0" class="w-full pl-7 pr-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]" placeholder="Opcional">
+                                    </div>
+                                    @error('childSpecialPrice')<span class="text-red-500 text-sm">{{ $message }}</span>@enderror
                                 </div>
                             </div>
                             <div class="mt-3 flex flex-wrap items-center gap-4">
@@ -1302,11 +1288,17 @@
                         </div>
 
                         {{-- Status --}}
-                        <div class="pt-2">
+                        <div class="pt-2 space-y-2">
                             <label class="flex items-center gap-2 cursor-pointer">
                                 <input wire:model="childIsActive" type="checkbox" class="w-4 h-4 rounded border-slate-300 text-[#ff7261] focus:ring-[#ff7261]">
                                 <span class="text-sm text-slate-700">Variante activa</span>
                             </label>
+                            @if($ecommerceEnabled)
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input wire:model="childShowInShop" type="checkbox" class="w-4 h-4 rounded border-slate-300 text-[#ff7261] focus:ring-[#ff7261]">
+                                <span class="text-sm text-slate-700">Mostrar en tienda en línea</span>
+                            </label>
+                            @endif
                         </div>
 
                         {{-- Image Upload Section for Child --}}
@@ -1594,6 +1586,7 @@
                                                 <th class="px-3 py-2 text-left font-semibold text-slate-500">Fila</th>
                                                 <th class="px-3 py-2 text-left font-semibold text-slate-500">Tipo</th>
                                                 <th class="px-3 py-2 text-left font-semibold text-slate-500">Nombre</th>
+                                                <th class="px-3 py-2 text-left font-semibold text-slate-500">Categoría</th>
                                                 <th class="px-3 py-2 text-right font-semibold text-slate-500">Precio</th>
                                                 <th class="px-3 py-2 text-center font-semibold text-slate-500">Estado</th>
                                             </tr>
@@ -1612,6 +1605,7 @@
                                                     </span>
                                                 </td>
                                                 <td class="px-3 py-2 text-slate-900 max-w-xs truncate">{{ $row['data']['nombre'] ?? '-' }}</td>
+                                                <td class="px-3 py-2 text-slate-600 max-w-xs truncate text-xs">{{ $row['data']['categoria'] ?? '-' }}</td>
                                                 <td class="px-3 py-2 text-right text-slate-600">${{ number_format(floatval($row['data']['precio_venta'] ?? 0), 0, ',', '.') }}</td>
                                                 <td class="px-3 py-2 text-center">
                                                     @if(!$row['valid'])
@@ -1644,7 +1638,7 @@
                                             </tr>
                                             @empty
                                             <tr>
-                                                <td colspan="5" class="px-3 py-8 text-center text-slate-500">
+                                                <td colspan="6" class="px-3 py-8 text-center text-slate-500">
                                                     @if($importFilter === 'errors')
                                                     <svg class="w-8 h-8 mx-auto text-green-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                                                     No hay errores, todos los registros son válidos

@@ -272,12 +272,17 @@
 
                 <div>
                     <label class="block text-sm font-medium text-slate-700 mb-1">Proveedor *</label>
-                    <select wire:model="supplier_id" class="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261] @error('supplier_id') border-red-300 @enderror">
-                        <option value="">Seleccionar proveedor...</option>
-                        @foreach($suppliers as $supplier)
-                        <option value="{{ $supplier->id }}">{{ $supplier->name }}</option>
-                        @endforeach
-                    </select>
+                    <div class="flex gap-2 items-center">
+                        <select wire:model="supplier_id" class="min-w-0 flex-1 px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261] @error('supplier_id') border-red-300 @enderror">
+                            <option value="">Seleccionar proveedor...</option>
+                            @foreach($suppliers as $supplier)
+                            <option value="{{ $supplier->id }}">{{ $supplier->name }}</option>
+                            @endforeach
+                        </select>
+                        <button type="button" wire:click="openSupplierCreate" class="p-2 bg-gradient-to-r from-[#ff7261] to-[#a855f7] text-white rounded-xl hover:from-[#e55a4a] hover:to-[#9333ea] transition-all flex-shrink-0" title="Crear proveedor">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                        </button>
+                    </div>
                     @error('supplier_id') <span class="text-xs text-red-500">{{ $message }}</span> @enderror
                 </div>
 
@@ -317,16 +322,54 @@
                 </div>
 
                 @if($payment_type === 'cash')
-                {{-- Cash Payment --}}
-                <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-1">Método de Pago *</label>
-                    <select wire:model="payment_method_id" class="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261] @error('payment_method_id') border-red-300 @enderror">
-                        <option value="">Seleccionar...</option>
-                        @foreach($paymentMethods as $method)
-                        <option value="{{ $method->id }}">{{ $method->name }}</option>
-                        @endforeach
-                    </select>
-                    @error('payment_method_id') <span class="text-xs text-red-500">{{ $message }}</span> @enderror
+                {{-- Multiple Payment Methods --}}
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <label class="block text-sm font-medium text-slate-700">Métodos de Pago *</label>
+                        <button type="button" wire:click="addPaymentRow" class="text-xs text-[#a855f7] hover:text-[#9333ea] font-medium flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                            Agregar método
+                        </button>
+                    </div>
+
+                    @foreach($purchasePayments as $index => $payment)
+                    <div class="flex gap-2 items-start">
+                        <select wire:model="purchasePayments.{{ $index }}.method_id" class="flex-1 px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261] text-sm">
+                            <option value="">Método...</option>
+                            @foreach($paymentMethods as $method)
+                            <option value="{{ $method->id }}">{{ $method->name }}</option>
+                            @endforeach
+                        </select>
+                        <div class="relative flex-1">
+                            <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 text-sm">$</span>
+                            <input wire:model.blur="purchasePayments.{{ $index }}.amount" type="number" step="0.01" min="0" class="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261] text-sm" placeholder="Monto">
+                        </div>
+                        <button type="button" wire:click="fillRemainingPayment({{ $index }})" class="p-2 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors flex-shrink-0" title="Llenar restante">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                        </button>
+                        @if(count($purchasePayments) > 1)
+                        <button type="button" wire:click="removePaymentRow({{ $index }})" class="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0" title="Eliminar">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                        @endif
+                    </div>
+                    @endforeach
+
+                    @php
+                        $paymentAllocated = array_sum(array_map(fn($p) => floatval($p['amount'] ?? 0), $purchasePayments));
+                        $paymentRemaining = round($total - $paymentAllocated, 2);
+                    @endphp
+                    @if($total > 0 && abs($paymentRemaining) > 0.01)
+                    <div class="p-2 rounded-lg {{ $paymentRemaining > 0 ? 'bg-amber-50' : 'bg-red-50' }}">
+                        <p class="text-xs {{ $paymentRemaining > 0 ? 'text-amber-600' : 'text-red-600' }}">
+                            {{ $paymentRemaining > 0 ? 'Falta por asignar: $' . number_format($paymentRemaining, 2) : 'Excede el total por: $' . number_format(abs($paymentRemaining), 2) }}
+                        </p>
+                    </div>
+                    @elseif($total > 0 && abs($paymentRemaining) <= 0.01)
+                    <div class="p-2 rounded-lg bg-green-50">
+                        <p class="text-xs text-green-600">Total cubierto correctamente</p>
+                    </div>
+                    @endif
                 </div>
                 @else
                 {{-- Credit Payment --}}
@@ -393,8 +436,19 @@
                 </div>
                 @if($discountAmount > 0)
                 <div class="flex justify-between text-sm">
-                    <span class="text-slate-500">Descuentos</span>
+                    <span class="text-slate-500">Desc. productos</span>
                     <span class="font-medium text-green-600">-${{ number_format($discountAmount, 2) }}</span>
+                </div>
+                @endif
+                @if($globalDiscountApplied && $globalDiscountAmount > 0)
+                <div class="flex justify-between text-sm items-center">
+                    <span class="text-purple-600 flex items-center gap-1">
+                        Desc. compra
+                        <button wire:click="removeGlobalDiscount" class="text-red-400 hover:text-red-600 transition" title="Quitar descuento">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                    </span>
+                    <span class="font-medium text-purple-600">-${{ number_format($globalDiscountAmount, 2) }}</span>
                 </div>
                 @endif
                 <div class="pt-3 border-t border-slate-200">
@@ -404,6 +458,16 @@
                     </div>
                 </div>
             </div>
+
+            {{-- Global Discount Button --}}
+            @if(count($cartItems) > 0)
+            <button wire:click="openGlobalDiscountModal" class="w-full px-3 py-2 text-sm font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl transition flex items-center justify-center gap-2 {{ $globalDiscountApplied ? 'ring-2 ring-purple-400' : '' }}">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+                </svg>
+                {{ $globalDiscountApplied ? 'Editar Desc. Compra' : 'Desc. a Compra' }}
+            </button>
+            @endif
         </div>
 
         {{-- Actions --}}
@@ -434,92 +498,169 @@
         </div>
     </div>
 
-    {{-- Quick Product Create Modal --}}
-    @if($isQuickCreateOpen)
+    @include('livewire.partials.purchase-product-modal')
+
+    {{-- Quick Supplier Create Modal --}}
+    @if($isSupplierCreateOpen)
     <div class="relative z-[100]" role="dialog" aria-modal="true">
-        <div class="fixed inset-0 bg-slate-900/75 backdrop-blur-sm z-[100]" wire:click="$set('isQuickCreateOpen', false)"></div>
+        <div class="fixed inset-0 bg-slate-900/75 backdrop-blur-sm z-[100]" wire:click="$set('isSupplierCreateOpen', false)"></div>
         <div class="fixed inset-0 z-[101] overflow-y-auto">
             <div class="flex min-h-full items-center justify-center p-4">
                 <div class="relative w-full max-w-lg bg-white rounded-2xl shadow-xl">
-                    {{-- Header --}}
                     <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
                         <div class="flex items-center gap-3">
                             <div class="w-10 h-10 rounded-full bg-gradient-to-r from-[#ff7261] to-[#a855f7] flex items-center justify-center">
-                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
                             </div>
-                            <h3 class="text-lg font-bold text-slate-900">Crear Producto Rápido</h3>
+                            <h3 class="text-lg font-bold text-slate-900">Crear Proveedor</h3>
                         </div>
-                        <button wire:click="$set('isQuickCreateOpen', false)" class="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100">
+                        <button wire:click="$set('isSupplierCreateOpen', false)" class="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                         </button>
                     </div>
-                    {{-- Content --}}
-                    <div class="px-6 py-4 space-y-4">
+                    <div class="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
                         <div>
                             <label class="block text-sm font-medium text-slate-700 mb-1">Nombre *</label>
-                            <input wire:model="quickName" type="text" class="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]" placeholder="Nombre del producto">
-                            @error('quickName') <span class="text-xs text-red-500">{{ $message }}</span> @enderror
+                            <input wire:model="supplierName" type="text" class="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]" placeholder="Nombre del proveedor">
+                            @error('supplierName') <span class="text-xs text-red-500">{{ $message }}</span> @enderror
                         </div>
                         <div class="grid grid-cols-2 gap-4">
                             <div>
-                                <label class="block text-sm font-medium text-slate-700 mb-1">Categoría *</label>
-                                <select wire:model="quickCategoryId" class="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]">
+                                <label class="block text-sm font-medium text-slate-700 mb-1">Tipo Documento *</label>
+                                <select wire:model="supplierTaxDocumentId" class="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]">
                                     <option value="">Seleccionar...</option>
-                                    @foreach($quickCategories as $cat)
-                                    <option value="{{ $cat->id }}">{{ $cat->name }}</option>
+                                    @foreach(\App\Models\TaxDocument::where('is_active', true)->orderBy('description')->get() as $doc)
+                                    <option value="{{ $doc->id }}">{{ $doc->description }}</option>
                                     @endforeach
                                 </select>
-                                @error('quickCategoryId') <span class="text-xs text-red-500">{{ $message }}</span> @enderror
+                                @error('supplierTaxDocumentId') <span class="text-xs text-red-500">{{ $message }}</span> @enderror
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-slate-700 mb-1">Unidad *</label>
-                                <select wire:model="quickUnitId" class="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]">
+                                <label class="block text-sm font-medium text-slate-700 mb-1">Nº Documento *</label>
+                                <input wire:model="supplierDocument" type="text" class="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]" placeholder="NIT o CC">
+                                @error('supplierDocument') <span class="text-xs text-red-500">{{ $message }}</span> @enderror
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 mb-1">Teléfono</label>
+                                <input wire:model="supplierPhone" type="text" class="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]" placeholder="Teléfono">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                                <input wire:model="supplierEmail" type="email" class="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]" placeholder="correo@ejemplo.com">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 mb-1">Departamento *</label>
+                                <select wire:model.live="supplierDepartmentId" class="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]">
                                     <option value="">Seleccionar...</option>
-                                    @foreach($quickUnits as $u)
-                                    <option value="{{ $u->id }}">{{ $u->name }} ({{ $u->abbreviation }})</option>
+                                    @foreach(\App\Models\Department::where('is_active', true)->orderBy('name')->get() as $dept)
+                                    <option value="{{ $dept->id }}">{{ $dept->name }}</option>
                                     @endforeach
                                 </select>
-                                @error('quickUnitId') <span class="text-xs text-red-500">{{ $message }}</span> @enderror
+                                @error('supplierDepartmentId') <span class="text-xs text-red-500">{{ $message }}</span> @enderror
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 mb-1">Municipio *</label>
+                                <select wire:model="supplierMunicipalityId" class="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]">
+                                    <option value="">Seleccionar...</option>
+                                    @foreach($supplierMunicipalities as $mun)
+                                    <option value="{{ $mun['id'] }}">{{ $mun['name'] }}</option>
+                                    @endforeach
+                                </select>
+                                @error('supplierMunicipalityId') <span class="text-xs text-red-500">{{ $message }}</span> @enderror
                             </div>
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">Impuesto</label>
-                            <select wire:model="quickTaxId" class="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]">
-                                <option value="">Sin impuesto</option>
-                                @foreach($quickTaxes as $t)
-                                <option value="{{ $t->id }}">{{ $t->name }} ({{ $t->value }}%)</option>
-                                @endforeach
-                            </select>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Dirección *</label>
+                            <input wire:model="supplierAddress" type="text" class="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]" placeholder="Dirección del proveedor">
+                            @error('supplierAddress') <span class="text-xs text-red-500">{{ $message }}</span> @enderror
                         </div>
                         <div class="grid grid-cols-2 gap-4">
                             <div>
-                                <label class="block text-sm font-medium text-slate-700 mb-1">Precio Compra *</label>
-                                <div class="relative">
-                                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">$</span>
-                                    <input wire:model="quickPurchasePrice" type="number" step="0.01" min="0" class="w-full pl-8 pr-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]">
-                                </div>
-                                @error('quickPurchasePrice') <span class="text-xs text-red-500">{{ $message }}</span> @enderror
+                                <label class="block text-sm font-medium text-slate-700 mb-1">Nombre Vendedor</label>
+                                <input wire:model="supplierSalespersonName" type="text" class="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]" placeholder="Nombre del vendedor">
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-slate-700 mb-1">Precio Venta *</label>
-                                <div class="relative">
-                                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">$</span>
-                                    <input wire:model="quickSalePrice" type="number" step="0.01" min="0" class="w-full pl-8 pr-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]">
-                                </div>
-                                @error('quickSalePrice') <span class="text-xs text-red-500">{{ $message }}</span> @enderror
+                                <label class="block text-sm font-medium text-slate-700 mb-1">Tel. Vendedor</label>
+                                <input wire:model="supplierSalespersonPhone" type="text" class="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]" placeholder="Teléfono vendedor">
                             </div>
                         </div>
-                        <div class="p-3 bg-blue-50 border border-blue-200 rounded-xl">
-                            <p class="text-xs text-blue-600">El producto se creará con stock en 0 y se asignará automáticamente a la sucursal actual. El SKU se generará automáticamente.</p>
+                    </div>
+                    <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3 rounded-b-2xl">
+                        <button wire:click="$set('isSupplierCreateOpen', false)" class="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50">Cancelar</button>
+                        <button wire:click="storeQuickSupplier" class="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-[#ff7261] to-[#a855f7] rounded-xl hover:from-[#e55a4a] hover:to-[#9333ea]">
+                            <span wire:loading.remove wire:target="storeQuickSupplier">Crear Proveedor</span>
+                            <span wire:loading wire:target="storeQuickSupplier">Creando...</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    @endif
+
+    {{-- Global Discount Modal --}}
+    @if($showGlobalDiscountModal)
+    <div class="relative z-[100]" role="dialog" aria-modal="true">
+        <div class="fixed inset-0 bg-slate-900/75 backdrop-blur-sm z-[100]" wire:click="closeGlobalDiscountModal"></div>
+        <div class="fixed inset-0 z-[101] overflow-y-auto">
+            <div class="flex min-h-full items-center justify-center p-4">
+                <div class="relative w-full max-w-md bg-white rounded-2xl shadow-xl">
+                    <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+                        <h3 class="text-lg font-bold text-slate-900">Descuento a Compra</h3>
+                        <button wire:click="closeGlobalDiscountModal" class="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="px-6 py-4 space-y-4">
+                        <div class="p-3 bg-purple-50 rounded-xl text-center">
+                            <p class="text-sm text-purple-600">Total actual de la compra</p>
+                            <p class="text-2xl font-bold text-purple-700">${{ number_format($subtotal + $taxAmount - $discountAmount, 2) }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Tipo de descuento</label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <button wire:click="$set('globalDiscountType', 'percentage')" class="px-4 py-2 text-sm font-medium rounded-xl border-2 transition {{ $globalDiscountType === 'percentage' ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-slate-200 text-slate-600 hover:border-purple-300' }}">
+                                    Porcentaje (%)
+                                </button>
+                                <button wire:click="$set('globalDiscountType', 'fixed')" class="px-4 py-2 text-sm font-medium rounded-xl border-2 transition {{ $globalDiscountType === 'fixed' ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-slate-200 text-slate-600 hover:border-purple-300' }}">
+                                    Valor Fijo ($)
+                                </button>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">{{ $globalDiscountType === 'percentage' ? 'Porcentaje' : 'Valor' }}</label>
+                            <div class="relative">
+                                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">{{ $globalDiscountType === 'percentage' ? '%' : '$' }}</span>
+                                <input wire:model="globalDiscountValue" type="number" step="0.01" min="0" max="{{ $globalDiscountType === 'percentage' ? '100' : '' }}" class="w-full pl-8 pr-4 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" placeholder="0" autofocus>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Razón (opcional)</label>
+                            <input wire:model="globalDiscountReason" type="text" class="w-full px-4 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" placeholder="Ej: Descuento por volumen, negociación...">
                         </div>
                     </div>
-                    {{-- Footer --}}
-                    <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3 rounded-b-2xl">
-                        <button wire:click="$set('isQuickCreateOpen', false)" class="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50">Cancelar</button>
-                        <button wire:click="storeQuickProduct" class="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-[#ff7261] to-[#a855f7] rounded-xl hover:from-[#e55a4a] hover:to-[#9333ea]">
-                            <span wire:loading.remove wire:target="storeQuickProduct">Crear y Agregar</span>
-                            <span wire:loading wire:target="storeQuickProduct">Creando...</span>
-                        </button>
+                    <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-between gap-3 rounded-b-2xl">
+                        <div>
+                            @if($globalDiscountApplied)
+                            <button wire:click="removeGlobalDiscount" wire:click.stop="closeGlobalDiscountModal" class="px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-300 rounded-xl hover:bg-red-50">
+                                Quitar Descuento
+                            </button>
+                            @endif
+                        </div>
+                        <div class="flex gap-3">
+                            <button wire:click="closeGlobalDiscountModal" class="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50">
+                                Cancelar
+                            </button>
+                            <button wire:click="applyGlobalDiscount" class="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-purple-500 to-purple-600 rounded-xl hover:from-purple-600 hover:to-purple-700">
+                                Aplicar Descuento
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

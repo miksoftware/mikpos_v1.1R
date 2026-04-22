@@ -49,8 +49,12 @@ class SeedMarkExecuted extends Command
         'PayrollModuleSeeder',
         'DiscountsModuleSeeder',
         'PaymentMethodsReportPermissionSeeder',
-        'ZonesTablesModuleSeeder',
-        'IngredientsModuleSeeder',
+        'PosCashDenominationsPermissionSeeder',
+        'EcommerceModuleSeeder',
+        'EcommerceSystemDocumentSeeder',
+        'EcommerceOrdersModuleSeeder',
+        'CustomerSalesReportPermissionSeeder',
+        'SalesViewOwnPermissionSeeder',
     ];
 
     public function handle(): int
