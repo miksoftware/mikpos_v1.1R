@@ -43,6 +43,7 @@ class Sale extends Model
         'global_discount_amount',
         'global_discount_reason',
         'source',
+        'mesa_id',
     ];
 
     protected function casts(): array
@@ -124,6 +125,11 @@ class Sale extends Model
     public function ecommerceOrder(): HasOne
     {
         return $this->hasOne(EcommerceOrder::class);
+    }
+
+    public function mesa(): BelongsTo
+    {
+        return $this->belongsTo(Mesa::class);
     }
 
     // Scopes

@@ -1,0 +1,1114 @@
+<?php
+
+namespace App\Livewire;
+
+use Livewire\Component;
+use Livewire\Attributes\Layout;
+use App\Models\Mesa;
+use App\Models\Sector;
+use App\Models\Cuenta;
+use App\Models\CuentaItem;
+use App\Models\Product;
+use App\Models\Ingredient;
+use App\Models\Category;
+use App\Models\Sale;
+use App\Models\SaleItem;
+use App\Models\SalePayment;
+use App\Models\PaymentMethod;
+use App\Models\Branch;
+use App\Models\CashRegister;
+use App\Models\CashReconciliation;
+use App\Models\InventoryMovement;
+use App\Services\ActivityLogService;
+use Illuminate\Support\Facades\DB;
+
+#[Layout('layouts.app')]
+class Mostrador extends Component
+{
+    // ─── Navigation ───────────────────────────────────────────────────────────
+    public string $view = 'mesas';         // 'mesas' | 'orden'
+    public $selectedSectorId = null;       // pill filter in mesas view
+
+    // ─── Active order ─────────────────────────────────────────────────────────
+    public $selectedMesaId = null;
+    public $selectedMesaName = '';
+    public $selectedSectorName = '';
+    public $currentCuentaId = null;
+
+    // ─── Cart (mirrors cuenta_items rows) ─────────────────────────────────────
+    // Each item: ['cuenta_item_id', 'type', 'item_id', 'name',
+    //             'unit_price', 'base_price', 'quantity',
+    //             'tax_rate', 'tax_amount', 'subtotal']
+    public array $cart = [];
+
+    // ─── Catalog (right panel) ────────────────────────────────────────────────
+    public string $productSearch = '';
+    public $selectedCategoryId = null;
+
+    // ─── Payment modal ────────────────────────────────────────────────────────
+    public bool $showPaymentModal = false;
+    public array $payments = [];
+    public string $paymentNotes = '';
+
+    // ─── Cancel confirm ───────────────────────────────────────────────────────
+    public bool $showCancelConfirm = false;
+
+    // ─── Persons counter ──────────────────────────────────────────────────────
+    public int $numPersons = 1;
+
+    // ─── Per-item notes modal ─────────────────────────────────────────────────
+    public bool $showNotesModal = false;
+    public ?int $notesItemIdx = null;
+    public string $notesText = '';
+
+    // ─── Cambio de mesa modal ─────────────────────────────────────────────────
+    public bool $showChangeMesaModal = false;
+    public ?int $targetMesaId = null;
+
+    // ─── División de cuenta modal ─────────────────────────────────────────────
+    public bool $showSplitModal = false;
+    public array $splitQty = []; // [cuenta_item_id => qty_to_pay]
+    public array $splitPayments = [['method_id' => null, 'amount' => 0]];
+    public string $splitNotes = '';
+
+    // ─── Branch / Cash register ───────────────────────────────────────────────
+    public $branchId = null;
+    public $cashRegister = null;
+    public $openReconciliation = null;
+    public bool $needsReconciliation = false;
+
+    // ─── Lifecycle ────────────────────────────────────────────────────────────
+
+    public function mount(): void
+    {
+        $user = auth()->user();
+        $this->branchId = $user->branch_id;
+
+        $this->cashRegister = CashRegister::where('user_id', $user->id)
+            ->where('is_active', true)
+            ->first();
+
+        if ($this->cashRegister) {
+            $this->branchId = $this->cashRegister->branch_id;
+            $this->openReconciliation = CashReconciliation::getOpenReconciliation($this->cashRegister->id);
+            $this->needsReconciliation = !$this->openReconciliation;
+        } else {
+            $this->needsReconciliation = true;
+        }
+
+        // Fallback: if still no branchId, use the first active branch
+        if (!$this->branchId) {
+            $this->branchId = Branch::where('is_active', true)->value('id');
+        }
+    }
+
+    // ─── Mesa navigation ──────────────────────────────────────────────────────
+
+    public function selectSector($sectorId): void
+    {
+        $this->selectedSectorId = ($this->selectedSectorId == $sectorId) ? null : $sectorId;
+    }
+
+    public function openMesa(int $mesaId): void
+    {
+        $mesa = Mesa::with('sector')->find($mesaId);
+        if (!$mesa || !$mesa->is_active) {
+            $this->dispatch('notify', message: 'Mesa no disponible', type: 'error');
+            return;
+        }
+
+        $this->selectedMesaId   = $mesa->id;
+        $this->selectedMesaName = $mesa->name;
+        $this->selectedSectorName = $mesa->sector?->name ?? '';
+
+        // Find existing open cuenta or create a new one
+        $cuenta = Cuenta::where('mesa_id', $mesa->id)->where('status', 'abierta')->first();
+
+        if (!$cuenta) {
+            $cuenta = Cuenta::create([
+                'mesa_id'   => $mesa->id,
+                'user_id'   => auth()->id(),
+                'branch_id' => $this->branchId,
+                'status'    => 'abierta',
+            ]);
+            // Mark mesa as occupied
+            $mesa->update(['status' => 'ocupada']);
+        }
+
+        $this->currentCuentaId = $cuenta->id;
+        $this->numPersons = $cuenta->num_persons ?? 1;
+        $this->loadCartFromCuenta($cuenta);
+        $this->productSearch      = '';
+        $this->selectedCategoryId = null;
+        $this->view               = 'orden';
+    }
+
+    public function backToMesas(): void
+    {
+        $this->view             = 'mesas';
+        $this->selectedMesaId   = null;
+        $this->selectedMesaName = '';
+        $this->selectedSectorName = '';
+        $this->currentCuentaId  = null;
+        $this->cart             = [];
+        $this->numPersons       = 1;
+        $this->productSearch    = '';
+        $this->selectedCategoryId = null;
+        $this->showPaymentModal   = false;
+        $this->showCancelConfirm  = false;
+        $this->showNotesModal     = false;
+        $this->showChangeMesaModal = false;
+        $this->showSplitModal     = false;
+        $this->payments           = [];
+        $this->paymentNotes       = '';
+        $this->splitQty           = [];
+        $this->splitPayments      = [['method_id' => null, 'amount' => 0]];
+        $this->splitNotes         = '';
+    }
+
+    private function loadCartFromCuenta(Cuenta $cuenta): void
+    {
+        $this->cart = [];
+        foreach ($cuenta->items()->with('preparationStation')->orderBy('id')->get() as $item) {
+            $ps = $item->preparationStation;
+            $this->cart[] = [
+                'cuenta_item_id'       => $item->id,
+                'type'                 => $item->ingredient_id ? 'ingredient' : 'product',
+                'item_id'              => $item->ingredient_id ?? $item->product_id,
+                'name'                 => $item->item_name,
+                'unit_price'           => (float) $item->unit_price,
+                'base_price'           => (float) $item->unit_price,
+                'quantity'             => (float) $item->quantity,
+                'tax_rate'             => (float) $item->tax_rate,
+                'tax_amount'           => (float) $item->tax_amount,
+                'subtotal'             => (float) $item->subtotal,
+                'notes'                => $item->notes ?? '',
+                'preparation_station_id' => $item->preparation_station_id,
+                'station_name'         => $ps?->name,
+                'station_icon'         => $ps?->icon,
+                'station_color'        => $ps?->color,
+            ];
+        }
+    }
+
+    // ─── Cart management ──────────────────────────────────────────────────────
+
+    public function addProductToCart(int $productId): void
+    {
+        $product = Product::with('tax')->find($productId);
+        if (!$product) return;
+
+        // Stock check for managed-inventory products
+        if ($product->manages_inventory && $product->current_stock <= 0) {
+            $this->dispatch('notify', message: "Sin stock disponible para \"{$product->name}\"", type: 'error');
+            return;
+        }
+
+        // Price calculation (same logic as POS)
+        $taxRate = 0.0;
+        $basePrice = (float) $product->sale_price;
+
+        if ($product->tax && $product->price_includes_tax) {
+            // Price already includes tax → extract base
+            $taxRate = (float) $product->tax->percentage / 100;
+            $basePrice = round($basePrice / (1 + $taxRate), 6);
+        } elseif ($product->tax && !$product->price_includes_tax) {
+            $taxRate = (float) $product->tax->percentage / 100;
+        }
+
+        $cartKey = 'p-' . $productId;
+        $idx = $this->findCartIndex($cartKey);
+
+        if ($idx !== null) {
+            // Increase quantity of existing row
+            $newQty = $this->cart[$idx]['quantity'] + 1;
+
+            // Stock re-check
+            if ($product->manages_inventory && $newQty > $product->current_stock) {
+                $this->dispatch('notify', message: "Stock insuficiente para \"{$product->name}\"", type: 'error');
+                return;
+            }
+
+            $taxAmt = round($basePrice * $taxRate * $newQty, 2);
+            $subtotal = round($basePrice * $newQty, 2);
+
+            $this->cart[$idx]['quantity']  = $newQty;
+            $this->cart[$idx]['tax_amount'] = $taxAmt;
+            $this->cart[$idx]['subtotal']  = $subtotal;
+
+            CuentaItem::where('id', $this->cart[$idx]['cuenta_item_id'])->update([
+                'quantity'   => $newQty,
+                'tax_amount' => $taxAmt,
+                'subtotal'   => $subtotal,
+            ]);
+        } else {
+            $taxAmt  = round($basePrice * $taxRate, 2);
+            $subtotal = round($basePrice, 2);
+
+            $product->loadMissing('preparationStation');
+            $ps = $product->preparationStation;
+
+            $ci = CuentaItem::create([
+                'cuenta_id'              => $this->currentCuentaId,
+                'product_id'             => $productId,
+                'item_name'              => $product->name,
+                'unit_price'             => $basePrice,
+                'quantity'               => 1,
+                'tax_rate'               => round($taxRate * 100, 2),
+                'tax_amount'             => $taxAmt,
+                'subtotal'               => $subtotal,
+                'notes'                  => null,
+                'preparation_station_id' => $product->preparation_station_id,
+            ]);
+
+            $this->cart[] = [
+                'cuenta_item_id'         => $ci->id,
+                'type'                   => 'product',
+                'item_id'                => $productId,
+                'name'                   => $product->name,
+                'unit_price'             => $basePrice,
+                'base_price'             => $basePrice,
+                'quantity'               => 1.0,
+                'tax_rate'               => round($taxRate * 100, 2),
+                'tax_amount'             => $taxAmt,
+                'subtotal'               => $subtotal,
+                'notes'                  => '',
+                'preparation_station_id' => $product->preparation_station_id,
+                'station_name'           => $ps?->name,
+                'station_icon'           => $ps?->icon,
+                'station_color'          => $ps?->color,
+            ];
+        }
+    }
+
+    public function addIngredientToCart(int $ingredientId): void
+    {
+        $ingredient = Ingredient::with('tax')->find($ingredientId);
+        if (!$ingredient || !$ingredient->show_in_pos) return;
+
+        $taxRate   = 0.0;
+        $basePrice = (float) $ingredient->sale_price;
+
+        if ($ingredient->includes_tax && $ingredient->tax) {
+            $taxRate   = (float) $ingredient->tax->percentage / 100;
+            $basePrice = round($basePrice / (1 + $taxRate), 6);
+        } elseif ($ingredient->tax) {
+            $taxRate = (float) $ingredient->tax->percentage / 100;
+        }
+
+        $cartKey = 'i-' . $ingredientId;
+        $idx = $this->findCartIndex($cartKey);
+
+        if ($idx !== null) {
+            $newQty  = $this->cart[$idx]['quantity'] + 1;
+            $taxAmt  = round($basePrice * $taxRate * $newQty, 2);
+            $subtotal = round($basePrice * $newQty, 2);
+
+            $this->cart[$idx]['quantity']  = $newQty;
+            $this->cart[$idx]['tax_amount'] = $taxAmt;
+            $this->cart[$idx]['subtotal']  = $subtotal;
+
+            CuentaItem::where('id', $this->cart[$idx]['cuenta_item_id'])->update([
+                'quantity'   => $newQty,
+                'tax_amount' => $taxAmt,
+                'subtotal'   => $subtotal,
+            ]);
+        } else {
+            $taxAmt  = round($basePrice * $taxRate, 2);
+            $subtotal = round($basePrice, 2);
+
+            $ingredient->loadMissing('preparationStation');
+            $ps = $ingredient->preparationStation;
+
+            $ci = CuentaItem::create([
+                'cuenta_id'              => $this->currentCuentaId,
+                'ingredient_id'          => $ingredientId,
+                'item_name'              => $ingredient->name,
+                'unit_price'             => $basePrice,
+                'quantity'               => 1,
+                'tax_rate'               => round($taxRate * 100, 2),
+                'tax_amount'             => $taxAmt,
+                'subtotal'               => $subtotal,
+                'notes'                  => null,
+                'preparation_station_id' => $ingredient->preparation_station_id,
+            ]);
+
+            $this->cart[] = [
+                'cuenta_item_id'         => $ci->id,
+                'type'                   => 'ingredient',
+                'item_id'                => $ingredientId,
+                'name'                   => $ingredient->name,
+                'unit_price'             => $basePrice,
+                'base_price'             => $basePrice,
+                'quantity'               => 1.0,
+                'tax_rate'               => round($taxRate * 100, 2),
+                'tax_amount'             => $taxAmt,
+                'subtotal'               => $subtotal,
+                'notes'                  => '',
+                'preparation_station_id' => $ingredient->preparation_station_id,
+                'station_name'           => $ps?->name,
+                'station_icon'           => $ps?->icon,
+                'station_color'          => $ps?->color,
+            ];
+        }
+    }
+
+    public function incrementQty(int $idx): void
+    {
+        if (!isset($this->cart[$idx])) return;
+
+        $item = $this->cart[$idx];
+
+        // Stock check if product
+        if ($item['type'] === 'product') {
+            $product = Product::find($item['item_id']);
+            if ($product && $product->manages_inventory) {
+                $currentInCart = $item['quantity'] + 1;
+                if ($currentInCart > $product->current_stock) {
+                    $this->dispatch('notify', message: "Stock insuficiente para \"{$item['name']}\"", type: 'error');
+                    return;
+                }
+            }
+        }
+
+        $newQty   = $item['quantity'] + 1;
+        $taxAmt   = round($item['base_price'] * ($item['tax_rate'] / 100) * $newQty, 2);
+        $subtotal = round($item['base_price'] * $newQty, 2);
+
+        $this->cart[$idx]['quantity']   = $newQty;
+        $this->cart[$idx]['tax_amount'] = $taxAmt;
+        $this->cart[$idx]['subtotal']   = $subtotal;
+
+        CuentaItem::where('id', $item['cuenta_item_id'])->update([
+            'quantity'   => $newQty,
+            'tax_amount' => $taxAmt,
+            'subtotal'   => $subtotal,
+        ]);
+    }
+
+    public function decrementQty(int $idx): void
+    {
+        if (!isset($this->cart[$idx])) return;
+
+        $item = $this->cart[$idx];
+
+        if ($item['quantity'] <= 1) {
+            $this->removeItem($idx);
+            return;
+        }
+
+        $newQty   = $item['quantity'] - 1;
+        $taxAmt   = round($item['base_price'] * ($item['tax_rate'] / 100) * $newQty, 2);
+        $subtotal = round($item['base_price'] * $newQty, 2);
+
+        $this->cart[$idx]['quantity']   = $newQty;
+        $this->cart[$idx]['tax_amount'] = $taxAmt;
+        $this->cart[$idx]['subtotal']   = $subtotal;
+
+        CuentaItem::where('id', $item['cuenta_item_id'])->update([
+            'quantity'   => $newQty,
+            'tax_amount' => $taxAmt,
+            'subtotal'   => $subtotal,
+        ]);
+    }
+
+    public function removeItem(int $idx): void
+    {
+        if (!isset($this->cart[$idx])) return;
+
+        CuentaItem::find($this->cart[$idx]['cuenta_item_id'])?->delete();
+        array_splice($this->cart, $idx, 1);
+    }
+
+    // ─── Cart helpers ─────────────────────────────────────────────────────────
+
+    private function findCartIndex(string $cartKey): ?int
+    {
+        [$type, $id] = explode('-', $cartKey, 2);
+        $itemType = $type === 'p' ? 'product' : 'ingredient';
+
+        foreach ($this->cart as $k => $item) {
+            if ($item['type'] === $itemType && $item['item_id'] == $id) {
+                return $k;
+            }
+        }
+        return null;
+    }
+
+    public function getSubtotalProperty(): float
+    {
+        return round(array_sum(array_column($this->cart, 'subtotal')), 2);
+    }
+
+    public function getTaxTotalProperty(): float
+    {
+        return round(array_sum(array_column($this->cart, 'tax_amount')), 2);
+    }
+
+    public function getTotalProperty(): float
+    {
+        return round($this->getSubtotalProperty() + $this->getTaxTotalProperty(), 2);
+    }
+
+    public function getTotalReceivedProperty(): float
+    {
+        return round(array_sum(array_column($this->payments, 'amount')), 2);
+    }
+
+    public function getPendingAmountProperty(): float
+    {
+        return max(0, round($this->getTotalProperty() - $this->getTotalReceivedProperty(), 2));
+    }
+
+    public function getChangeProperty(): float
+    {
+        return max(0, round($this->getTotalReceivedProperty() - $this->getTotalProperty(), 2));
+    }
+
+    // ─── Payment ──────────────────────────────────────────────────────────────
+
+    public function openPaymentModal(): void
+    {
+        if (empty($this->cart)) {
+            $this->dispatch('notify', message: 'La orden está vacía', type: 'error');
+            return;
+        }
+
+        if ($this->needsReconciliation) {
+            $this->dispatch('notify', message: 'Debes abrir la caja antes de cobrar', type: 'error');
+            return;
+        }
+
+        // Init single payment slot with full total
+        $this->payments = [['method_id' => null, 'amount' => $this->getTotalProperty()]];
+        $this->paymentNotes = '';
+        $this->showPaymentModal = true;
+    }
+
+    public function addPaymentMethod(): void
+    {
+        $this->payments[] = ['method_id' => null, 'amount' => 0];
+    }
+
+    public function removePaymentMethod(int $index): void
+    {
+        array_splice($this->payments, $index, 1);
+    }
+
+    public function closePaymentModal(): void
+    {
+        $this->showPaymentModal = false;
+        $this->payments = [];
+    }
+
+    public function processPayment(): void
+    {
+        // Validate payments
+        foreach ($this->payments as $payment) {
+            if (empty($payment['method_id'])) {
+                $this->dispatch('notify', message: 'Selecciona un método de pago', type: 'error');
+                return;
+            }
+        }
+
+        if ($this->getPendingAmountProperty() > 0) {
+            $this->dispatch('notify', message: 'El monto recibido es insuficiente', type: 'error');
+            return;
+        }
+
+        // Pre-check ingredient stock for compuesto products
+        foreach ($this->cart as $item) {
+            if ($item['type'] !== 'product') continue;
+            $product = Product::with('ingredients')->find($item['item_id']);
+            if (!$product || $product->product_type !== 'compuesto') continue;
+            foreach ($product->ingredients as $ingredient) {
+                if (!$ingredient->manage_inventory) continue;
+                $needed = (float) $ingredient->pivot->quantity * (float) $item['quantity'];
+                if ((float) $ingredient->stock < $needed) {
+                    $this->dispatch('notify',
+                        message: "Stock insuficiente para ingrediente \"{$ingredient->name}\": necesita {$needed}, disponible {$ingredient->stock}",
+                        type: 'error'
+                    );
+                    return;
+                }
+            }
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $total    = $this->getTotalProperty();
+            $subtotal = $this->getSubtotalProperty();
+            $taxTotal = $this->getTaxTotalProperty();
+
+            // Create Sale
+            $sale = Sale::create([
+                'branch_id'               => $this->branchId,
+                'cash_reconciliation_id'  => $this->openReconciliation->id,
+                'mesa_id'                 => $this->selectedMesaId,
+                'user_id'                 => auth()->id(),
+                'invoice_number'          => Sale::generateInvoiceNumber($this->branchId),
+                'subtotal'                => $subtotal,
+                'tax_total'               => $taxTotal,
+                'discount'                => 0,
+                'total'                   => $total,
+                'status'                  => 'completed',
+                'payment_type'            => 'cash',
+                'payment_status'          => 'paid',
+                'credit_amount'           => 0,
+                'paid_amount'             => $total,
+                'notes'                   => $this->paymentNotes ?: null,
+                'source'                  => 'pos',
+            ]);
+
+            // Create sale items and handle stock
+            foreach ($this->cart as $item) {
+                $productId    = $item['type'] === 'product'    ? $item['item_id'] : null;
+                $ingredientId = $item['type'] === 'ingredient' ? $item['item_id'] : null;
+
+                SaleItem::create([
+                    'sale_id'      => $sale->id,
+                    'product_id'   => $productId,
+                    'product_name' => $item['name'],
+                    'product_sku'  => null,
+                    'unit_price'   => $item['base_price'],
+                    'quantity'     => $item['quantity'],
+                    'tax_rate'     => $item['tax_rate'],
+                    'tax_amount'   => $item['tax_amount'],
+                    'subtotal'     => $item['subtotal'],
+                    'discount_type_value' => 0,
+                    'discount_amount'     => 0,
+                    'total'        => $item['subtotal'] + $item['tax_amount'],
+                ]);
+
+                // Product stock
+                if ($productId) {
+                    $product = Product::find($productId);
+                    if ($product && $product->manages_inventory) {
+                        InventoryMovement::createMovement(
+                            'sale', $product, 'out', $item['quantity'],
+                            (float) $item['base_price'],
+                            "Venta #{$sale->invoice_number} (Mostrador: {$this->selectedMesaName})",
+                            $sale, $this->branchId
+                        );
+                        $product->decrement('current_stock', $item['quantity']);
+                    }
+
+                    // Compuesto: deduct ingredients
+                    if ($product && $product->product_type === 'compuesto') {
+                        $productWithIng = Product::with('ingredients')->find($productId);
+                        foreach ($productWithIng->ingredients as $ingredient) {
+                            if ($ingredient->manage_inventory) {
+                                $ingredient->decrement('stock', (float) $ingredient->pivot->quantity * (float) $item['quantity']);
+                            }
+                        }
+                    }
+                }
+
+                // Ingredient stock (sold as individual item)
+                if ($ingredientId) {
+                    $ingredient = Ingredient::find($ingredientId);
+                    if ($ingredient && $ingredient->manage_inventory) {
+                        $ingredient->decrement('stock', $item['quantity']);
+                    }
+                }
+            }
+
+            // Sale payments (adjust last to match exact total)
+            $validPayments = array_values(array_filter($this->payments, fn($p) => (float)($p['amount'] ?? 0) > 0 && !empty($p['method_id'])));
+            $paid = 0;
+            foreach ($validPayments as $i => $payment) {
+                $isLast  = ($i === count($validPayments) - 1);
+                $amount  = $isLast ? round($total - $paid, 2) : min((float) $payment['amount'], round($total - $paid, 2));
+                if ($amount > 0) {
+                    SalePayment::create([
+                        'sale_id'           => $sale->id,
+                        'payment_method_id' => $payment['method_id'],
+                        'amount'            => $amount,
+                    ]);
+                    $paid += $amount;
+                }
+            }
+
+            // Close cuenta and free mesa
+            Cuenta::where('id', $this->currentCuentaId)->update([
+                'status'  => 'cerrada',
+                'sale_id' => $sale->id,
+            ]);
+            Mesa::where('id', $this->selectedMesaId)->update(['status' => 'libre']);
+
+            DB::commit();
+
+            ActivityLogService::logCreate('mostrador', $sale, "Venta desde Mostrador, Mesa: {$this->selectedMesaName}");
+            $this->dispatch('notify', message: "Venta procesada correctamente — {$sale->invoice_number}", type: 'success');
+            $this->backToMesas();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $this->dispatch('notify', message: 'Error al procesar el pago: ' . $e->getMessage(), type: 'error');
+        }
+    }
+
+    // ─── Cancel cuenta ────────────────────────────────────────────────────────
+
+    public function confirmCancelarCuenta(): void
+    {
+        $this->showCancelConfirm = true;
+    }
+
+    public function cancelarCuenta(): void
+    {
+        if ($this->currentCuentaId) {
+            Cuenta::where('id', $this->currentCuentaId)->update(['status' => 'cancelada']);
+            Mesa::where('id', $this->selectedMesaId)->update(['status' => 'libre']);
+        }
+        $this->dispatch('notify', message: 'Cuenta cancelada', type: 'success');
+        $this->backToMesas();
+    }
+
+    // ─── Category filter ──────────────────────────────────────────────────────
+
+    public function selectCategory($categoryId): void
+    {
+        $this->selectedCategoryId = ($this->selectedCategoryId == $categoryId) ? null : $categoryId;
+    }
+
+    // ─── Persons counter ──────────────────────────────────────────────────────
+
+    public function incrementPersons(): void
+    {
+        if ($this->numPersons < 99) {
+            $this->numPersons++;
+            Cuenta::where('id', $this->currentCuentaId)->update(['num_persons' => $this->numPersons]);
+        }
+    }
+
+    public function decrementPersons(): void
+    {
+        if ($this->numPersons > 1) {
+            $this->numPersons--;
+            Cuenta::where('id', $this->currentCuentaId)->update(['num_persons' => $this->numPersons]);
+        }
+    }
+
+    // ─── Per-item notes ───────────────────────────────────────────────────────
+
+    public function openNotesModal(int $idx): void
+    {
+        if (!isset($this->cart[$idx])) return;
+        $this->notesItemIdx = $idx;
+        $this->notesText    = $this->cart[$idx]['notes'] ?? '';
+        $this->showNotesModal = true;
+    }
+
+    public function saveNotes(): void
+    {
+        $idx = $this->notesItemIdx;
+        if ($idx === null || !isset($this->cart[$idx])) {
+            $this->showNotesModal = false;
+            return;
+        }
+        $this->cart[$idx]['notes'] = $this->notesText;
+        CuentaItem::where('id', $this->cart[$idx]['cuenta_item_id'])
+            ->update(['notes' => $this->notesText ?: null]);
+        $this->showNotesModal = false;
+        $this->notesItemIdx   = null;
+        $this->notesText      = '';
+    }
+
+    public function closeNotesModal(): void
+    {
+        $this->showNotesModal = false;
+        $this->notesItemIdx   = null;
+        $this->notesText      = '';
+    }
+
+    // ─── Cambio de mesa ───────────────────────────────────────────────────────
+
+    public function openChangeMesaModal(): void
+    {
+        $this->targetMesaId = null;
+        $this->showChangeMesaModal = true;
+    }
+
+    public function confirmChangeMesa(): void
+    {
+        if (!$this->targetMesaId) {
+            $this->dispatch('notify', message: 'Selecciona una mesa destino', type: 'error');
+            return;
+        }
+
+        $targetMesa = Mesa::find($this->targetMesaId);
+        if (!$targetMesa || !$targetMesa->is_active || $targetMesa->status !== 'libre') {
+            $this->dispatch('notify', message: 'La mesa destino no está disponible', type: 'error');
+            return;
+        }
+
+        DB::transaction(function () use ($targetMesa) {
+            // Move cuenta to new mesa
+            Cuenta::where('id', $this->currentCuentaId)->update(['mesa_id' => $targetMesa->id]);
+            // Free old mesa
+            Mesa::where('id', $this->selectedMesaId)->update(['status' => 'libre']);
+            // Occupy new mesa
+            $targetMesa->update(['status' => 'ocupada']);
+        });
+
+        $oldName = $this->selectedMesaName;
+        $this->selectedMesaId   = $targetMesa->id;
+        $this->selectedMesaName = $targetMesa->name;
+        $this->selectedSectorName = $targetMesa->sector?->name ?? $this->selectedSectorName;
+        $this->showChangeMesaModal = false;
+        $this->targetMesaId = null;
+        $this->dispatch('notify', message: "Mesa cambiada de {$oldName} a {$targetMesa->name}", type: 'success');
+    }
+
+    public function closeChangeMesaModal(): void
+    {
+        $this->showChangeMesaModal = false;
+        $this->targetMesaId = null;
+    }
+
+    // ─── Precuenta (print preview) ────────────────────────────────────────────
+
+    public function openPrecuenta(): void
+    {
+        if (!$this->currentCuentaId) return;
+        $this->dispatch('openWindow', url: route('mostrador.precuenta', $this->currentCuentaId));
+    }
+
+    // ─── Comandas ─────────────────────────────────────────────────────────────
+
+    public function openComanda(): void
+    {
+        if (!$this->currentCuentaId) return;
+        $this->dispatch('openWindow', url: route('mostrador.comanda', $this->currentCuentaId));
+    }
+
+    // ─── División de cuenta ───────────────────────────────────────────────────
+
+    public function openSplitModal(): void
+    {
+        if (empty($this->cart)) {
+            $this->dispatch('notify', message: 'La orden está vacía', type: 'error');
+            return;
+        }
+        // Initialize split qty to 0 for each item
+        $this->splitQty = [];
+        foreach ($this->cart as $item) {
+            $this->splitQty[$item['cuenta_item_id']] = 0;
+        }
+        $this->splitPayments = [['method_id' => null, 'amount' => 0]];
+        $this->splitNotes    = '';
+        $this->showSplitModal = true;
+    }
+
+    public function getSplitTotalProperty(): float
+    {
+        $total = 0.0;
+        foreach ($this->cart as $item) {
+            $qtyToPay = (float) ($this->splitQty[$item['cuenta_item_id']] ?? 0);
+            if ($qtyToPay <= 0) continue;
+            $lineSubtotal = round($item['base_price'] * $qtyToPay, 2);
+            $lineTax      = round($item['base_price'] * ($item['tax_rate'] / 100) * $qtyToPay, 2);
+            $total += $lineSubtotal + $lineTax;
+        }
+        return round($total, 2);
+    }
+
+    public function addSplitPaymentMethod(): void
+    {
+        $this->splitPayments[] = ['method_id' => null, 'amount' => 0];
+    }
+
+    public function removeSplitPaymentMethod(int $index): void
+    {
+        array_splice($this->splitPayments, $index, 1);
+    }
+
+    public function processSplitPayment(): void
+    {
+        if ($this->needsReconciliation) {
+            $this->dispatch('notify', message: 'Debes abrir la caja antes de cobrar', type: 'error');
+            return;
+        }
+
+        $splitTotal = $this->getSplitTotalProperty();
+
+        if ($splitTotal <= 0) {
+            $this->dispatch('notify', message: 'Selecciona al menos un ítem para cobrar', type: 'error');
+            return;
+        }
+
+        foreach ($this->splitPayments as $p) {
+            if (empty($p['method_id'])) {
+                $this->dispatch('notify', message: 'Selecciona un método de pago', type: 'error');
+                return;
+            }
+        }
+
+        $splitReceived = round(array_sum(array_column($this->splitPayments, 'amount')), 2);
+        if ($splitReceived < $splitTotal) {
+            $this->dispatch('notify', message: 'El monto recibido es insuficiente', type: 'error');
+            return;
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // Collect items being paid
+            $paidItems = [];
+            $subtotalAcc = 0.0;
+            $taxAcc      = 0.0;
+
+            foreach ($this->cart as $item) {
+                $qtyToPay = (float) ($this->splitQty[$item['cuenta_item_id']] ?? 0);
+                if ($qtyToPay <= 0) continue;
+                $lineSubtotal = round($item['base_price'] * $qtyToPay, 2);
+                $lineTax      = round($item['base_price'] * ($item['tax_rate'] / 100) * $qtyToPay, 2);
+                $subtotalAcc += $lineSubtotal;
+                $taxAcc      += $lineTax;
+                $paidItems[]  = [
+                    'cart_item'  => $item,
+                    'qty_paid'   => $qtyToPay,
+                    'subtotal'   => $lineSubtotal,
+                    'tax_amount' => $lineTax,
+                ];
+            }
+
+            $subtotalAcc = round($subtotalAcc, 2);
+            $taxAcc      = round($taxAcc, 2);
+            $totalSplit  = round($subtotalAcc + $taxAcc, 2);
+
+            // Create partial sale
+            $sale = Sale::create([
+                'branch_id'               => $this->branchId,
+                'cash_reconciliation_id'  => $this->openReconciliation->id,
+                'mesa_id'                 => $this->selectedMesaId,
+                'user_id'                 => auth()->id(),
+                'invoice_number'          => Sale::generateInvoiceNumber($this->branchId),
+                'subtotal'                => $subtotalAcc,
+                'tax_total'               => $taxAcc,
+                'discount'                => 0,
+                'total'                   => $totalSplit,
+                'status'                  => 'completed',
+                'payment_type'            => 'cash',
+                'payment_status'          => 'paid',
+                'credit_amount'           => 0,
+                'paid_amount'             => $totalSplit,
+                'notes'                   => $this->splitNotes ?: null,
+                'source'                  => 'pos',
+            ]);
+
+            foreach ($paidItems as $pi) {
+                $item = $pi['cart_item'];
+                SaleItem::create([
+                    'sale_id'             => $sale->id,
+                    'product_id'          => $item['type'] === 'product' ? $item['item_id'] : null,
+                    'product_name'        => $item['name'],
+                    'product_sku'         => null,
+                    'unit_price'          => $item['base_price'],
+                    'quantity'            => $pi['qty_paid'],
+                    'tax_rate'            => $item['tax_rate'],
+                    'tax_amount'          => $pi['tax_amount'],
+                    'subtotal'            => $pi['subtotal'],
+                    'discount_type_value' => 0,
+                    'discount_amount'     => 0,
+                    'total'               => $pi['subtotal'] + $pi['tax_amount'],
+                ]);
+            }
+
+            // Record payments
+            $paid = 0;
+            $validPayments = array_values(array_filter($this->splitPayments, fn($p) => (float)($p['amount'] ?? 0) > 0 && !empty($p['method_id'])));
+            foreach ($validPayments as $i => $payment) {
+                $isLast = ($i === count($validPayments) - 1);
+                $amount = $isLast ? round($totalSplit - $paid, 2) : min((float) $payment['amount'], round($totalSplit - $paid, 2));
+                if ($amount > 0) {
+                    SalePayment::create([
+                        'sale_id'           => $sale->id,
+                        'payment_method_id' => $payment['method_id'],
+                        'amount'            => $amount,
+                    ]);
+                    $paid += $amount;
+                }
+            }
+
+            // Update or remove cuenta_items
+            foreach ($paidItems as $pi) {
+                $item     = $pi['cart_item'];
+                $qtyLeft  = $item['quantity'] - $pi['qty_paid'];
+
+                if ($qtyLeft <= 0) {
+                    CuentaItem::where('id', $item['cuenta_item_id'])->delete();
+                } else {
+                    $newSub = round($item['base_price'] * $qtyLeft, 2);
+                    $newTax = round($item['base_price'] * ($item['tax_rate'] / 100) * $qtyLeft, 2);
+                    CuentaItem::where('id', $item['cuenta_item_id'])->update([
+                        'quantity'   => $qtyLeft,
+                        'tax_amount' => $newTax,
+                        'subtotal'   => $newSub,
+                    ]);
+                }
+            }
+
+            DB::commit();
+
+            // Check if cuenta is now empty
+            $remainingItems = CuentaItem::where('cuenta_id', $this->currentCuentaId)->count();
+
+            if ($remainingItems === 0) {
+                Cuenta::where('id', $this->currentCuentaId)->update(['status' => 'cerrada', 'sale_id' => $sale->id]);
+                Mesa::where('id', $this->selectedMesaId)->update(['status' => 'libre']);
+                $this->dispatch('notify', message: "Cuenta cerrada — {$sale->invoice_number}", type: 'success');
+                $this->showSplitModal = false;
+                $this->backToMesas();
+            } else {
+                // Reload cart from DB
+                $cuenta = Cuenta::find($this->currentCuentaId);
+                $this->loadCartFromCuenta($cuenta);
+                $this->showSplitModal = false;
+                $this->splitQty = [];
+                $this->splitPayments = [['method_id' => null, 'amount' => 0]];
+                $this->dispatch('notify', message: "Pago parcial registrado — {$sale->invoice_number}", type: 'success');
+            }
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $this->dispatch('notify', message: 'Error al procesar el pago parcial: ' . $e->getMessage(), type: 'error');
+        }
+    }
+
+    public function closeSplitModal(): void
+    {
+        $this->showSplitModal = false;
+        $this->splitQty = [];
+        $this->splitPayments = [['method_id' => null, 'amount' => 0]];
+        $this->splitNotes = '';
+    }
+
+    // ─── Render ───────────────────────────────────────────────────────────────
+
+    public function render()
+    {
+        $sectors  = Sector::where('is_active', true)->orderBy('name')->get();
+        $mesas    = collect();
+        $sellableItems = collect();
+        $categories    = collect();
+        $paymentMethods = collect();
+
+        // ── Mesa grid ────────────────────────────────────────────────────────
+        $mesasQuery = Mesa::with(['sector', 'cuenta.items'])
+            ->where('is_active', true)
+            ->orderBy('name');
+
+        if ($this->selectedSectorId) {
+            $mesasQuery->where('sector_id', $this->selectedSectorId);
+        }
+
+        $mesas = $mesasQuery->get();
+
+        // ── Catalog (only when in 'orden' view) ───────────────────────────
+        if ($this->view === 'orden') {
+            $categories = Category::where('is_active', true)->orderBy('name')->get();
+
+            // Products
+            $productsQuery = Product::with(['tax', 'unit'])
+                ->where('is_active', true)
+                ->where(function ($q) {
+                    $q->where('manages_inventory', false)
+                      ->orWhere('current_stock', '>', 0);
+                })
+                ->forBranch($this->branchId);
+
+            if ($this->selectedCategoryId) {
+                $productsQuery->where('category_id', $this->selectedCategoryId);
+            }
+
+            if (strlen(trim($this->productSearch)) >= 2) {
+                $search = trim($this->productSearch);
+                $productsQuery->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                      ->orWhere('sku', 'like', "%{$search}%");
+                });
+            }
+
+            $products = $productsQuery->orderBy('name')->limit(60)->get();
+
+            foreach ($products as $product) {
+                $taxRate = 0.0;
+                if ($product->tax) {
+                    $taxRate = (float) $product->tax->percentage / 100;
+                }
+                $displayPrice = $product->price_includes_tax
+                    ? (float) $product->sale_price
+                    : round((float) $product->sale_price * (1 + $taxRate), 2);
+
+                $sellableItems->push([
+                    'type'             => 'product',
+                    'id'               => $product->id,
+                    'name'             => $product->name,
+                    'price'            => $displayPrice,
+                    'image'            => $product->image,
+                    'unit'             => $product->unit?->abbreviation ?? 'UND',
+                    'manages_inventory' => (bool) $product->manages_inventory,
+                    'stock'            => (float) $product->current_stock,
+                ]);
+            }
+
+            // Ingredients with show_in_pos = true and sale_price > 0
+            $ingredientsQuery = Ingredient::with('tax')
+                ->where('is_active', true)
+                ->where('show_in_pos', true)
+                ->where('sale_price', '>', 0);
+
+            if (strlen(trim($this->productSearch)) >= 2) {
+                $search = trim($this->productSearch);
+                $ingredientsQuery->where('name', 'like', "%{$search}%");
+            }
+
+            $ingredients = $ingredientsQuery->orderBy('name')->limit(30)->get();
+
+            foreach ($ingredients as $ingredient) {
+                $taxRate = 0.0;
+                if ($ingredient->includes_tax && $ingredient->tax) {
+                    $taxRate = (float) $ingredient->tax->percentage / 100;
+                } elseif ($ingredient->tax) {
+                    $taxRate = (float) $ingredient->tax->percentage / 100;
+                }
+                $displayPrice = $ingredient->includes_tax
+                    ? (float) $ingredient->sale_price
+                    : round((float) $ingredient->sale_price * (1 + $taxRate), 2);
+
+                $sellableItems->push([
+                    'type'  => 'ingredient',
+                    'id'    => $ingredient->id,
+                    'name'  => $ingredient->name,
+                    'price' => $displayPrice,
+                    'image' => null,
+                    'unit'  => 'UND',
+                    'manages_inventory' => false,
+                    'stock' => null,
+                ]);
+            }
+
+            $paymentMethods = PaymentMethod::where('is_active', true)->get();
+        }
+
+        return view('livewire.mostrador', [
+            'sectors'        => $sectors,
+            'mesas'          => $mesas,
+            'categories'     => $categories,
+            'sellableItems'  => $sellableItems,
+            'paymentMethods' => $paymentMethods,
+            'subtotal'       => $this->getSubtotalProperty(),
+            'taxTotal'       => $this->getTaxTotalProperty(),
+            'total'          => $this->getTotalProperty(),
+            'totalReceived'  => $this->getTotalReceivedProperty(),
+            'pendingAmount'  => $this->getPendingAmountProperty(),
+            'change'         => $this->getChangeProperty(),
+            'splitTotal'     => $this->getSplitTotalProperty(),
+            'libreMesas'     => $this->view === 'orden'
+                ? Mesa::with('sector')->where('is_active', true)->where('status', 'libre')
+                    ->where('id', '!=', $this->selectedMesaId ?? 0)->orderBy('name')->get()
+                : collect(),
+        ]);
+    }
+}

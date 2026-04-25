@@ -274,6 +274,54 @@ class RolesAndPermissionsSeeder extends Seeder
                     ['name' => 'customers.delete', 'display_name' => 'Eliminar Clientes'],
                 ],
             ],
+            [
+                'name' => 'ingredients',
+                'display_name' => 'Ingredientes',
+                'icon' => 'beaker',
+                'order' => 23,
+                'permissions' => [
+                    ['name' => 'ingredients.view', 'display_name' => 'Ver Ingredientes'],
+                    ['name' => 'ingredients.create', 'display_name' => 'Crear Ingredientes'],
+                    ['name' => 'ingredients.edit', 'display_name' => 'Editar Ingredientes'],
+                    ['name' => 'ingredients.delete', 'display_name' => 'Eliminar Ingredientes'],
+                ],
+            ],
+            [
+                'name' => 'ingredient_groups',
+                'display_name' => 'Grupos de Ingredientes',
+                'icon' => 'collection',
+                'order' => 24,
+                'permissions' => [
+                    ['name' => 'ingredient_groups.view', 'display_name' => 'Ver Grupos de Ingredientes'],
+                    ['name' => 'ingredient_groups.create', 'display_name' => 'Crear Grupos de Ingredientes'],
+                    ['name' => 'ingredient_groups.edit', 'display_name' => 'Editar Grupos de Ingredientes'],
+                    ['name' => 'ingredient_groups.delete', 'display_name' => 'Eliminar Grupos de Ingredientes'],
+                ],
+            ],
+            [
+                'name' => 'sectors',
+                'display_name' => 'Sectores',
+                'icon' => 'view-grid',
+                'order' => 25,
+                'permissions' => [
+                    ['name' => 'sectors.view', 'display_name' => 'Ver Sectores'],
+                    ['name' => 'sectors.create', 'display_name' => 'Crear Sectores'],
+                    ['name' => 'sectors.edit', 'display_name' => 'Editar Sectores'],
+                    ['name' => 'sectors.delete', 'display_name' => 'Eliminar Sectores'],
+                ],
+            ],
+            [
+                'name' => 'mesas',
+                'display_name' => 'Mesas',
+                'icon' => 'table',
+                'order' => 26,
+                'permissions' => [
+                    ['name' => 'mesas.view', 'display_name' => 'Ver Mesas'],
+                    ['name' => 'mesas.create', 'display_name' => 'Crear Mesas'],
+                    ['name' => 'mesas.edit', 'display_name' => 'Editar Mesas'],
+                    ['name' => 'mesas.delete', 'display_name' => 'Eliminar Mesas'],
+                ],
+            ],
         ];
 
         foreach ($modules as $moduleData) {

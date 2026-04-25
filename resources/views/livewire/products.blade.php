@@ -215,6 +215,9 @@
                                 <div>
                                     <div class="font-medium text-slate-900 flex items-center gap-1.5">
                                         {{ $item->name }}
+                                        @if($item->product_type === 'compuesto')
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">Compuesto</span>
+                                        @endif
                                         @if($ecommerceEnabled)
                                         <button wire:click="toggleShopVisibility({{ $item->id }})" class="p-0.5 rounded transition-colors {{ $item->show_in_shop ? 'text-green-500 hover:text-green-700' : 'text-slate-300 hover:text-slate-500' }}" title="{{ $item->show_in_shop ? 'Visible en tienda' : 'Oculto en tienda' }}">
                                             @if($item->show_in_shop)
@@ -506,6 +509,141 @@
                                 <textarea wire:model="description" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]" placeholder="Descripción del producto"></textarea>
                             </div>
                         </div>
+
+                        {{-- Tipo de Producto --}}
+                        <div x-data="{ productType: $wire.entangle('product_type') }">
+                            <h4 class="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                                Tipo de Producto
+                            </h4>
+                            <div class="flex gap-3">
+                                <label class="flex-1 flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all"
+                                       :class="productType === 'normal' ? 'border-[#ff7261] bg-red-50' : 'border-slate-200 hover:border-slate-300'">
+                                    <input type="radio" x-model="productType" value="normal" class="sr-only">
+                                    <div class="w-4 h-4 rounded-full border-2 flex items-center justify-center"
+                                         :class="productType === 'normal' ? 'border-[#ff7261]' : 'border-slate-300'">
+                                        <div class="w-2 h-2 rounded-full bg-[#ff7261]" x-show="productType === 'normal'"></div>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-medium text-slate-900">Normal</p>
+                                        <p class="text-xs text-slate-500">Producto estándar</p>
+                                    </div>
+                                </label>
+                                <label class="flex-1 flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all"
+                                       :class="productType === 'compuesto' ? 'border-purple-500 bg-purple-50' : 'border-slate-200 hover:border-slate-300'">
+                                    <input type="radio" x-model="productType" value="compuesto" class="sr-only">
+                                    <div class="w-4 h-4 rounded-full border-2 flex items-center justify-center"
+                                         :class="productType === 'compuesto' ? 'border-purple-500' : 'border-slate-300'">
+                                        <div class="w-2 h-2 rounded-full bg-purple-500" x-show="productType === 'compuesto'"></div>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-medium text-slate-900">Compuesto</p>
+                                        <p class="text-xs text-slate-500">Tiene receta de ingredientes</p>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        {{-- Estación de Preparación --}}
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Estación de Preparación</label>
+                            <select wire:model="preparationStationId"
+                                class="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261] bg-white">
+                                <option value="">Sin estación asignada</option>
+                                @foreach($preparationStations as $ps)
+                                <option value="{{ $ps->id }}">{{ $ps->icon }} {{ $ps->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+
+                        {{-- Ingredientes (solo para compuesto) --}}
+                        <div x-data="{
+                                productType: $wire.entangle('product_type'),
+                                ingredients: $wire.entangle('productIngredients'),
+                                newIngredientId: '',
+                                newQty: '',
+                                addIngredient() {
+                                    if (!this.newIngredientId || !this.newQty || parseFloat(this.newQty) <= 0) return;
+                                    const exists = this.ingredients.some(r => r.ingredient_id == this.newIngredientId);
+                                    if (exists) return;
+                                    this.ingredients = [...this.ingredients, { ingredient_id: this.newIngredientId, quantity: this.newQty }];
+                                    this.newIngredientId = '';
+                                    this.newQty = '';
+                                },
+                                removeIngredient(idx) {
+                                    this.ingredients = this.ingredients.filter((_, i) => i !== idx);
+                                }
+                            }" x-show="productType === 'compuesto'" x-cloak>
+                            <div class="border border-purple-200 rounded-xl p-4 bg-purple-50/40">
+                                <h4 class="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                                    Ingredientes / Receta *
+                                </h4>
+
+                                {{-- Add row --}}
+                                <div class="flex gap-2 mb-3">
+                                    <select x-model="newIngredientId" class="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500">
+                                        <option value="">Seleccionar ingrediente...</option>
+                                        @foreach($activeIngredients as $ingredient)
+                                        <option value="{{ $ingredient->id }}">{{ $ingredient->name }}</option>
+                                        @endforeach
+                                    </select>
+                                    <input x-model="newQty" type="number" step="0.001" min="0.001" placeholder="Cant." class="w-24 px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500">
+                                    <button type="button" @click="addIngredient()"
+                                            class="px-3 py-2 rounded-xl text-white text-sm font-medium bg-purple-500 hover:bg-purple-600 transition-colors flex items-center gap-1">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                                        Agregar
+                                    </button>
+                                </div>
+
+                                {{-- Ingredient rows --}}
+                                <div class="space-y-2">
+                                    <template x-if="ingredients.length === 0">
+                                        <p class="text-xs text-slate-400 text-center py-3">Aún no hay ingredientes. Agrega al menos uno.</p>
+                                    </template>
+                                    <template x-for="(row, idx) in ingredients" :key="idx">
+                                        <div class="flex items-center gap-2 bg-white rounded-xl px-3 py-2 border border-slate-200">
+                                            <span class="flex-1 text-sm text-slate-700"
+                                                  x-text="@js($activeIngredients->pluck('name','id')) [row.ingredient_id] ?? 'Ingrediente #' + row.ingredient_id">
+                                            </span>
+                                            <input x-model="ingredients[idx].quantity" type="number" step="0.001" min="0.001"
+                                                   class="w-24 px-2 py-1 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-purple-500/50 focus:border-purple-400">
+                                            <button type="button" @click="removeIngredient(idx)"
+                                                    class="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                            </button>
+                                        </div>
+                                    </template>
+                                </div>
+                                @error('productIngredients') <span class="text-red-500 text-sm mt-2 block">{{ $message }}</span> @enderror
+                                @error('productIngredients.*') <span class="text-red-500 text-sm mt-2 block">{{ $message }}</span> @enderror
+                            </div>
+                        </div>
+
+                        {{-- Elegibles (grupos de ingredientes opcionales) --}}
+                        @if($activeIngredientGroups->isNotEmpty())
+                        <div x-data="{ selected: $wire.entangle('productGroups') }">
+                            <div class="border border-amber-200 rounded-xl p-4 bg-amber-50/40">
+                                <h4 class="text-sm font-semibold text-slate-700 mb-1 flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                                    Grupos Elegibles
+                                    <span class="ml-auto text-xs font-normal text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full" x-text="selected.length + ' seleccionado(s)'"></span>
+                                </h4>
+                                <p class="text-xs text-slate-500 mb-3">Grupos de opciones que el cliente puede elegir al ordenar</p>
+                                <div class="grid grid-cols-2 gap-2">
+                                    @foreach($activeIngredientGroups as $group)
+                                    <label class="flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all"
+                                           :class="selected.includes('{{ $group->id }}') ? 'border-amber-400 bg-amber-50' : 'border-slate-200 hover:border-slate-300 bg-white'">
+                                        <input type="checkbox" value="{{ $group->id }}" x-model="selected"
+                                               class="w-4 h-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400">
+                                        <span class="text-sm text-slate-700">{{ $group->name }}</span>
+                                    </label>
+                                    @endforeach
+                                </div>
+                            </div>
+                        </div>
+                        @endif
+
                         <div>
                             <h4 class="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path></svg>

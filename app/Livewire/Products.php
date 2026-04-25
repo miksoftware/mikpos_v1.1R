@@ -6,6 +6,8 @@ use App\Models\Branch;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Color;
+use App\Models\Ingredient;
+use App\Models\IngredientGroup;
 use App\Models\InventoryMovement;
 use App\Models\Presentation;
 use App\Models\Product;
@@ -16,6 +18,7 @@ use App\Models\ProductModel;
 use App\Models\Subcategory;
 use App\Models\Tax;
 use App\Models\Unit;
+use App\Models\PreparationStation;
 use App\Services\ActivityLogService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -88,6 +91,12 @@ class Products extends Component
     public ?string $size = null;
     public ?float $weight = null;
     public ?string $imei = null;
+
+    // Restaurant fields
+    public string $product_type = 'normal';
+    public ?int $preparationStationId = null;
+    public array $productIngredients = []; // [['ingredient_id' => X, 'quantity' => Y], ...]
+    public array $productGroups = []; // array of ingredient_group IDs (as strings)
 
     // Form data for child product
     public ?int $childId = null;
@@ -277,6 +286,8 @@ class Products extends Component
         $presentations = Presentation::where('is_active', true)->orderBy('name')->get();
         $colors = Color::where('is_active', true)->orderBy('name')->get();
         $productModels = ProductModel::where('is_active', true)->orderBy('name')->get();
+        $activeIngredients = Ingredient::where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $activeIngredientGroups = IngredientGroup::where('is_active', true)->orderBy('name')->get(['id', 'name']);
 
         // Check if ecommerce is enabled for the relevant branch(es)
         if ($this->needsBranchSelection) {
@@ -299,6 +310,9 @@ class Products extends Component
             'colors' => $colors,
             'productModels' => $productModels,
             'ecommerceEnabled' => $ecommerceEnabled,
+            'activeIngredients' => $activeIngredients,
+            'activeIngredientGroups' => $activeIngredientGroups,
+            'preparationStations' => PreparationStation::where('is_active', true)->orderBy('name')->get(),
         ]);
     }
 
@@ -337,7 +351,7 @@ class Products extends Component
         }
         $this->resetValidation();
         $this->loadFieldSettings();
-        $item = Product::findOrFail($id);
+        $item = Product::with(['ingredients', 'ingredientGroups'])->findOrFail($id);
         
         $this->itemId = $item->id;
         $this->branch_id = $item->branch_id;
@@ -374,6 +388,15 @@ class Products extends Component
         $this->existingImage = $item->image;
         $this->image = null;
 
+        // Load restaurant fields
+        $this->product_type = $item->product_type ?? 'normal';
+        $this->preparationStationId = $item->preparation_station_id;
+        $this->productIngredients = $item->ingredients->map(fn($i) => [
+            'ingredient_id' => (string) $i->id,
+            'quantity'      => (string) $i->pivot->quantity,
+        ])->toArray();
+        $this->productGroups = $item->ingredientGroups->pluck('id')->map(fn($id) => (string) $id)->toArray();
+
         // Load subcategories for the selected category
         $this->subcategories = $this->category_id
             ? Subcategory::where('category_id', $this->category_id)->where('is_active', true)->orderBy('name')->get()
@@ -398,6 +421,19 @@ class Products extends Component
         if ($this->needsBranchSelection) {
             $rules['branch_id'] = 'required|exists:branches,id';
             $messages['branch_id.required'] = 'Debe seleccionar una sucursal';
+        }
+
+        // Ingredient recipe validation for compuesto products
+        if ($this->product_type === 'compuesto') {
+            $rules['productIngredients'] = 'array|min:1';
+            $rules['productIngredients.*.ingredient_id'] = 'required|exists:ingredients,id';
+            $rules['productIngredients.*.quantity'] = 'required|numeric|min:0.001';
+            $messages['productIngredients.min'] = 'Un producto compuesto debe tener al menos un ingrediente';
+            $messages['productIngredients.*.ingredient_id.required'] = 'Selecciona un ingrediente';
+            $messages['productIngredients.*.ingredient_id.exists'] = 'El ingrediente seleccionado no existe';
+            $messages['productIngredients.*.quantity.required'] = 'La cantidad es obligatoria';
+            $messages['productIngredients.*.quantity.numeric'] = 'La cantidad debe ser un número';
+            $messages['productIngredients.*.quantity.min'] = 'La cantidad debe ser mayor a 0';
         }
         
         $this->validate($rules, $messages);
@@ -449,6 +485,9 @@ class Products extends Component
             'size' => $this->size ?: null,
             'weight' => $this->weight ?: null,
             'imei' => $this->imei ?: null,
+            // Restaurant fields
+            'product_type' => $this->product_type,
+            'preparation_station_id' => $this->preparationStationId ?: null,
         ]);
 
         // Generate SKU if not provided
@@ -511,6 +550,20 @@ class Products extends Component
                 ]);
             }
         }
+
+        // Sync ingredients recipe (only for compuesto, clear for normal)
+        if ($this->product_type === 'compuesto') {
+            $ingredientsSync = [];
+            foreach ($this->productIngredients as $row) {
+                $ingredientsSync[(int) $row['ingredient_id']] = ['quantity' => (float) $row['quantity']];
+            }
+            $item->ingredients()->sync($ingredientsSync);
+        } else {
+            $item->ingredients()->detach();
+        }
+
+        // Sync elegibles (ingredient groups) — always
+        $item->ingredientGroups()->sync(array_map('intval', $this->productGroups));
 
         $isNew
             ? ActivityLogService::logCreate('products', $item, "Producto '{$item->name}' creado")
@@ -1306,6 +1359,11 @@ class Products extends Component
         $this->size = null;
         $this->weight = null;
         $this->imei = null;
+        // Restaurant fields
+        $this->product_type = 'normal';
+        $this->preparationStationId = null;
+        $this->productIngredients = [];
+        $this->productGroups = [];
     }
 
     // ==================== CSV EXPORT METHOD ====================

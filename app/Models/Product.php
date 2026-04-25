@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -43,6 +44,8 @@ class Product extends Model
         'has_commission',
         'commission_type',
         'commission_value',
+        'product_type',
+        'preparation_station_id',
     ];
 
     protected function casts(): array
@@ -60,6 +63,7 @@ class Product extends Model
             'min_stock' => 'decimal:3',
             'max_stock' => 'decimal:3',
             'current_stock' => 'decimal:3',
+            'product_type' => 'string',
         ];
     }
 
@@ -68,6 +72,11 @@ class Product extends Model
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);
+    }
+
+    public function preparationStation(): BelongsTo
+    {
+        return $this->belongsTo(PreparationStation::class);
     }
 
     public function category(): BelongsTo
@@ -118,6 +127,24 @@ class Product extends Model
     public function activeChildren(): HasMany
     {
         return $this->hasMany(ProductChild::class)->where('is_active', true);
+    }
+
+    public function ingredients(): BelongsToMany
+    {
+        return $this->belongsToMany(Ingredient::class, 'product_ingredients')
+            ->withPivot('quantity')
+            ->withTimestamps();
+    }
+
+    public function ingredientGroups(): BelongsToMany
+    {
+        return $this->belongsToMany(IngredientGroup::class, 'product_ingredient_groups')
+            ->withTimestamps();
+    }
+
+    public function isCompuesto(): bool
+    {
+        return $this->product_type === 'compuesto';
     }
 
     public function inventoryMovements(): HasMany

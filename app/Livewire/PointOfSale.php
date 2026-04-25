@@ -1467,6 +1467,25 @@ class PointOfSale extends Component
                 return;
             }
         }
+
+        // Pre-sale: validate ingredient stock for compuesto products
+        $stockErrors = [];
+        foreach ($this->cart as $item) {
+            if (empty($item['product_id'])) continue;
+            $product = Product::with(['ingredients.unit'])->find($item['product_id']);
+            if (!$product || $product->product_type !== 'compuesto') continue;
+            foreach ($product->ingredients as $ingredient) {
+                if (!$ingredient->manage_inventory) continue;
+                $needed = (float) $ingredient->pivot->quantity * (float) $item['quantity'];
+                if ((float) $ingredient->stock < $needed) {
+                    $stockErrors[] = "Stock insuficiente para \"{$ingredient->name}\": necesita {$needed}, disponible {$ingredient->stock}";
+                }
+            }
+        }
+        if (!empty($stockErrors)) {
+            $this->dispatch('notify', message: implode(' | ', $stockErrors), type: 'error');
+            return;
+        }
         
         try {
             DB::beginTransaction();
@@ -1543,6 +1562,19 @@ class PointOfSale extends Component
 
                         // Update stock
                         $product->decrement('current_stock', $item['quantity']);
+                    }
+                }
+
+                // Handle compuesto product: decrement each ingredient in the recipe
+                if ($product && $product->product_type === 'compuesto') {
+                    $productWithIngredients = Product::with('ingredients')->find($item['product_id']);
+                    if ($productWithIngredients) {
+                        foreach ($productWithIngredients->ingredients as $ingredient) {
+                            if ($ingredient->manage_inventory) {
+                                $totalDeduct = (float) $ingredient->pivot->quantity * (float) $item['quantity'];
+                                $ingredient->decrement('stock', $totalDeduct);
+                            }
+                        }
                     }
                 }
 

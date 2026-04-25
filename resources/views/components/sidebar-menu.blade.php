@@ -33,6 +33,17 @@
 </a>
 @endif
 
+<!-- Mostrador -->
+@if (auth()->user()->hasPermission('mostrador.view'))
+<a href="{{ route('mostrador') }}" @if($mobile) @click="mobileMenuOpen = false" @endif
+    class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group {{ request()->routeIs('mostrador') ? 'bg-white/10 text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white' }}">
+    <svg class="w-5 h-5 flex-shrink-0 {{ request()->routeIs('mostrador') ? 'text-[#ff7261]' : 'group-hover:text-[#ff7261]' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18M10 4v16M14 4v16M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z"/>
+    </svg>
+    <span @if(!$mobile) x-show="sidebarOpen" @endif class="font-medium">Mostrador</span>
+</a>
+@endif
+
 <!-- Cajas Section -->
 @if (auth()->user()->hasPermission('cash_registers.view') || auth()->user()->hasPermission('cash_reconciliations.view'))
 @if($mobile)
@@ -235,9 +246,33 @@
         <span>Descuentos</span>
     </a>
     @endif
+    @if (auth()->user()->hasPermission('ingredients.view'))
+    <a href="{{ route('ingredients') }}" @click="mobileMenuOpen = false" class="{{ $linkClass }} {{ request()->routeIs('ingredients') ? $activeClass : $inactiveClass }}">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path>
+        </svg>
+        <span>Ingredientes</span>
+    </a>
+    @endif
+    @if (auth()->user()->hasPermission('preparation_stations.view'))
+    <a href="{{ route('preparation-stations') }}" @click="mobileMenuOpen = false" class="{{ $linkClass }} {{ request()->routeIs('preparation-stations') ? $activeClass : $inactiveClass }}">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+        </svg>
+        <span>Módulos Preparación</span>
+    </a>
+    @endif
+    @if (auth()->user()->hasPermission('mesas.view'))
+    <a href="{{ route('mesas') }}" @click="mobileMenuOpen = false" class="{{ $linkClass }} {{ request()->routeIs('mesas') ? $activeClass : $inactiveClass }}">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18M10 4v16M14 4v16M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z"/>
+        </svg>
+        <span>Mesas</span>
+    </a>
+    @endif
 </div>
 @else
-<div x-data="{ creacionOpen: {{ request()->routeIs('customers') || request()->routeIs('suppliers') || request()->routeIs('products') || request()->routeIs('combos') || request()->routeIs('services') || request()->routeIs('discounts') ? 'true' : 'false' }} }">
+<div x-data="{ creacionOpen: {{ request()->routeIs('customers') || request()->routeIs('suppliers') || request()->routeIs('products') || request()->routeIs('combos') || request()->routeIs('services') || request()->routeIs('discounts') || request()->routeIs('ingredients') || request()->routeIs('preparation-stations') || request()->routeIs('mesas') ? 'true' : 'false' }} }">
     <button @click="creacionOpen = !creacionOpen"
         class="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group text-slate-400 hover:bg-white/5 hover:text-white">
         <div class="flex items-center gap-3">
@@ -297,6 +332,30 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
             </svg>
             <span class="text-sm">Descuentos</span>
+        </a>
+        @endif
+        @if (auth()->user()->hasPermission('ingredients.view'))
+        <a href="{{ route('ingredients') }}" class="{{ $linkClass }} {{ request()->routeIs('ingredients') ? $activeClass : $inactiveClass }}">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path>
+            </svg>
+            <span class="text-sm">Ingredientes</span>
+        </a>
+        @endif
+        @if (auth()->user()->hasPermission('preparation_stations.view'))
+        <a href="{{ route('preparation-stations') }}" class="{{ $linkClass }} {{ request()->routeIs('preparation-stations') ? $activeClass : $inactiveClass }}">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+            </svg>
+            <span class="text-sm">Módulos Preparación</span>
+        </a>
+        @endif
+        @if (auth()->user()->hasPermission('mesas.view'))
+        <a href="{{ route('mesas') }}" class="{{ $linkClass }} {{ request()->routeIs('mesas') ? $activeClass : $inactiveClass }}">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18M10 4v16M14 4v16M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z"/>
+            </svg>
+            <span class="text-sm">Mesas</span>
         </a>
         @endif
     </div>

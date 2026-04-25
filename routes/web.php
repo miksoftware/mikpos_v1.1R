@@ -131,6 +131,21 @@ Route::middleware(['auth'])->group(function () {
         ->name('imeis')
         ->middleware('permission:imeis.view');
 
+    // Ingredient Routes
+    Route::get('/ingredients', App\Livewire\Ingredients::class)
+        ->name('ingredients')
+        ->middleware('permission:ingredients.view');
+
+    // Preparation Stations Routes
+    Route::get('/preparation-stations', App\Livewire\PreparationStations::class)
+        ->name('preparation-stations')
+        ->middleware('permission:preparation_stations.view');
+
+    // Mesas Routes
+    Route::get('/mesas', App\Livewire\Mesas::class)
+        ->name('mesas')
+        ->middleware('permission:mesas.view');
+
     // Customer Management Routes
     Route::get('/customers', App\Livewire\Customers::class)
         ->name('customers')
@@ -246,6 +261,11 @@ Route::middleware(['auth'])->group(function () {
         ->name('pos')
         ->middleware('permission:pos.access');
 
+    // Mostrador (Restaurant Floor POS)
+    Route::get('/mostrador', App\Livewire\Mostrador::class)
+        ->name('mostrador')
+        ->middleware('permission:mostrador.view');
+
     // POS Receipt
     Route::get('/receipt/{sale}', function (App\Models\Sale $sale) {
         // Load relationships needed for the receipt
@@ -308,6 +328,18 @@ Route::middleware(['auth'])->group(function () {
         
         return view('receipts.cash-reconciliation-receipt', compact('reconciliation'));
     })->name('cash-reconciliation-receipt.show')->middleware('permission:cash_reconciliations.view');
+
+    // Mostrador: Comanda (kitchen/bar ticket print)
+    Route::get('/mostrador/comanda/{cuenta}', function (App\Models\Cuenta $cuenta) {
+        $cuenta->load(['mesa.sector', 'items.preparationStation', 'user', 'branch']);
+        return view('mostrador.comanda', compact('cuenta'));
+    })->name('mostrador.comanda')->middleware('permission:mostrador.view');
+
+    // Mostrador: Precuenta (pre-bill print — NOT a fiscal document)
+    Route::get('/mostrador/precuenta/{cuenta}', function (App\Models\Cuenta $cuenta) {
+        $cuenta->load(['mesa.sector', 'items', 'user', 'branch']);
+        return view('mostrador.precuenta', compact('cuenta'));
+    })->name('mostrador.precuenta')->middleware('permission:mostrador.view');
 
     // Nómina
     Route::prefix('nomina')->name('nomina.')->group(function () {
