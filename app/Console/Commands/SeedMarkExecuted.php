@@ -55,6 +55,7 @@ class SeedMarkExecuted extends Command
         'EcommerceOrdersModuleSeeder',
         'CustomerSalesReportPermissionSeeder',
         'SalesViewOwnPermissionSeeder',
+        'KitchenOrdersModuleSeeder',
     ];
 
     public function handle(): int

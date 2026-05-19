@@ -156,12 +156,11 @@
                             <!-- Role -->
                             <div>
                                 <label class="block text-sm font-medium text-slate-700 mb-1">Rol *</label>
-                                <select wire:model="role" 
+                                <select wire:model="role"
                                     class="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]">
-                                    <option value="cashier">Cajero</option>
-                                    <option value="supervisor">Supervisor</option>
-                                    <option value="branch_admin">Admin Sucursal</option>
-                                    <option value="super_admin">Admin General</option>
+                                    @foreach($roles as $r)
+                                        <option value="{{ $r->name }}">{{ $r->display_name ?: $r->name }}</option>
+                                    @endforeach
                                 </select>
                                 @error('role') <span class="text-red-500 text-sm">{{ $message }}</span> @enderror
                             </div>
@@ -179,6 +178,31 @@
                                 @error('branch_id') <span class="text-red-500 text-sm">{{ $message }}</span> @enderror
                             </div>
                         </div>
+
+                        <!-- Preparation Stations (Kitchen Panel access) -->
+                        @if($preparationStations->count() > 0)
+                        <div class="pt-2">
+                            <label class="block text-sm font-medium text-slate-700 mb-1.5">
+                                Áreas de preparación asignadas
+                                <span class="text-xs font-normal text-slate-500 ml-1">(solo verá las comandas de estas áreas en el panel de cocina)</span>
+                            </label>
+                            <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                @foreach($preparationStations as $station)
+                                <label class="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-xl cursor-pointer hover:border-[#ff7261]/50 hover:bg-[#ff7261]/5 transition-colors has-[:checked]:border-[#ff7261] has-[:checked]:bg-[#ff7261]/10">
+                                    <input type="checkbox"
+                                        wire:model="preparation_station_ids"
+                                        value="{{ $station->id }}"
+                                        class="w-4 h-4 rounded border-slate-300 text-[#ff7261] focus:ring-[#ff7261]">
+                                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs text-white"
+                                        style="background: {{ $station->color ?? '#6b7280' }};">
+                                        {{ $station->icon ?: '•' }}
+                                    </span>
+                                    <span class="text-sm text-slate-700 font-medium truncate">{{ $station->name }}</span>
+                                </label>
+                                @endforeach
+                            </div>
+                        </div>
+                        @endif
                     </div>
                     <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
                         <button wire:click="$set('isModalOpen', false)" class="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50">Cancelar</button>

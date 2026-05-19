@@ -21,6 +21,7 @@ class CuentaItem extends Model
         'subtotal',
         'notes',
         'preparation_station_id',
+        'sent_at',
     ];
 
     protected $casts = [
@@ -29,6 +30,7 @@ class CuentaItem extends Model
         'tax_rate'   => 'decimal:2',
         'tax_amount' => 'decimal:2',
         'subtotal'   => 'decimal:2',
+        'sent_at'    => 'datetime',
     ];
 
     // Relationships

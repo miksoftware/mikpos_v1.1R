@@ -31,6 +31,7 @@ class Branch extends Model
         'receipt_header',
         'show_in_pos',
         'ecommerce_enabled',
+        'use_preparation_stations',
         'show_stock_in_shop',
         'is_active',
     ];
@@ -41,6 +42,7 @@ class Branch extends Model
             'authorization_date' => 'date',
             'show_in_pos' => 'boolean',
             'ecommerce_enabled' => 'boolean',
+            'use_preparation_stations' => 'boolean',
             'show_stock_in_shop' => 'boolean',
             'is_active' => 'boolean',
         ];

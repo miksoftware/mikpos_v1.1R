@@ -49,6 +49,20 @@ class User extends Authenticatable
             ->withTimestamps();
     }
 
+    /**
+     * Preparation stations this user is assigned to (kitchen, bar, etc.).
+     * Used to scope the Kitchen Panel so staff only see their own station(s).
+     */
+    public function preparationStations(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            PreparationStation::class,
+            'preparation_station_user',
+            'user_id',
+            'preparation_station_id'
+        )->withTimestamps();
+    }
+
     public function activityLogs(): HasMany
     {
         return $this->hasMany(ActivityLog::class);
@@ -120,5 +134,51 @@ class User extends Authenticatable
         }
         
         return array_keys($permissions);
+    }
+
+    /**
+     * Determine the best landing route for this user based on the permissions
+     * they actually have. Useful right after login so a user without
+     * dashboard.view (e.g. a cook with only kitchen_panel.view) doesn't crash
+     * with a 403.
+     *
+     * Order is from most-restricted (single-purpose roles) to most-broad.
+     */
+    public function landingRoute(): string
+    {
+        // Single-purpose role: kitchen panel staff
+        if ($this->hasPermission('kitchen_panel.view') && !$this->hasPermission('dashboard.view')) {
+            return route('kitchen-panel');
+        }
+
+        // Cashier-style accounts that go straight to POS
+        if ($this->hasPermission('pos.access') && !$this->hasPermission('dashboard.view')) {
+            return route('pos');
+        }
+
+        // Mostrador / waitstaff
+        if ($this->hasPermission('mostrador.view') && !$this->hasPermission('dashboard.view')) {
+            return route('mostrador');
+        }
+
+        // Kitchen orders panel (full visibility)
+        if ($this->hasPermission('kitchen.view') && !$this->hasPermission('dashboard.view')) {
+            return route('kitchen-orders');
+        }
+
+        // Default: dashboard for users who can see it
+        if ($this->hasPermission('dashboard.view')) {
+            return route('dashboard');
+        }
+
+        // Fallback for anyone else with at least one panel permission
+        if ($this->hasPermission('kitchen_panel.view'))   return route('kitchen-panel');
+        if ($this->hasPermission('mostrador.view'))       return route('mostrador');
+        if ($this->hasPermission('pos.access'))           return route('pos');
+        if ($this->hasPermission('kitchen.view'))         return route('kitchen-orders');
+        if ($this->hasPermission('sales.view'))           return route('sales');
+
+        // Truly nothing assigned — log them out gracefully on the login page.
+        return route('login');
     }
 }

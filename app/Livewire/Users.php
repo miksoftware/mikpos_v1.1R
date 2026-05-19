@@ -7,6 +7,7 @@ use Livewire\WithPagination;
 use App\Models\User;
 use App\Models\Branch;
 use App\Models\Role;
+use App\Models\PreparationStation;
 use Illuminate\Support\Facades\Hash;
 use Livewire\Attributes\Rule;
 use Livewire\Attributes\Layout;
@@ -33,7 +34,7 @@ class Users extends Component
     #[Rule('required|min:6')]
     public $password;
 
-    #[Rule('required|in:super_admin,branch_admin,supervisor,cashier')]
+    #[Rule('required|exists:roles,name')]
     public $role = 'cashier';
 
     #[Rule('nullable|exists:branches,id')]
@@ -41,6 +42,9 @@ class Users extends Component
 
     public $phone;
     public $is_active = true;
+
+    /** @var array<int> */
+    public array $preparation_station_ids = [];
 
     public function render()
     {
@@ -59,20 +63,22 @@ class Users extends Component
         return view('livewire.users', [
             'users' => $users,
             'branches' => Branch::all(),
+            'roles' => Role::where('is_active', true)->orderBy('display_name')->get(),
+            'preparationStations' => PreparationStation::where('is_active', true)->orderBy('name')->get(),
         ]);
     }
 
     public function create()
     {
         $this->resetValidation();
-        $this->reset(['userId', 'name', 'email', 'password', 'role', 'branch_id', 'phone', 'is_active']);
+        $this->reset(['userId', 'name', 'email', 'password', 'role', 'branch_id', 'phone', 'is_active', 'preparation_station_ids']);
         $this->isModalOpen = true;
     }
 
     public function edit($id)
     {
         $this->resetValidation();
-        $user = User::with('roles')->findOrFail($id);
+        $user = User::with(['roles', 'preparationStations'])->findOrFail($id);
         $this->userId = $user->id;
         $this->name = $user->name;
         $this->email = $user->email;
@@ -81,6 +87,7 @@ class Users extends Component
         $this->phone = $user->phone;
         $this->is_active = $user->is_active;
         $this->password = ''; // Don't populate password
+        $this->preparation_station_ids = $user->preparationStations->pluck('id')->map(fn($i) => (int) $i)->toArray();
         $this->isModalOpen = true;
     }
 
@@ -90,7 +97,7 @@ class Users extends Component
         $rules = [
             'name' => 'required|min:3',
             'email' => 'required|email|unique:users,email,' . $this->userId,
-            'role' => 'required|in:super_admin,branch_admin,supervisor,cashier',
+            'role' => 'required|exists:roles,name',
             'branch_id' => 'nullable|exists:branches,id',
         ];
 
@@ -121,6 +128,10 @@ class Users extends Component
         if ($role) {
             $user->roles()->sync([$role->id]);
         }
+
+        // Sync preparation stations (kitchen panel access)
+        $stationIds = array_values(array_unique(array_map('intval', $this->preparation_station_ids ?? [])));
+        $user->preparationStations()->sync($stationIds);
 
         $this->isModalOpen = false;
         $this->dispatch('notify', message: $this->userId ? 'Usuario actualizado correctamente' : 'Usuario creado correctamente');

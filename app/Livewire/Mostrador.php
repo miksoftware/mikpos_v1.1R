@@ -19,6 +19,9 @@ use App\Models\Branch;
 use App\Models\CashRegister;
 use App\Models\CashReconciliation;
 use App\Models\InventoryMovement;
+use App\Models\KitchenOrder;
+use App\Models\KitchenOrderItem;
+use App\Models\PreparationStation;
 use App\Services\ActivityLogService;
 use Illuminate\Support\Facades\DB;
 
@@ -77,6 +80,9 @@ class Mostrador extends Component
     public $openReconciliation = null;
     public bool $needsReconciliation = false;
 
+    // ─── Preparation stations (per-branch toggle) ─────────────────────────────
+    public bool $useStations = false;
+
     // ─── Lifecycle ────────────────────────────────────────────────────────────
 
     public function mount(): void
@@ -100,6 +106,10 @@ class Mostrador extends Component
         if (!$this->branchId) {
             $this->branchId = Branch::where('is_active', true)->value('id');
         }
+
+        // Branch-level toggle: whether to use preparation stations (comandas).
+        $branch = $this->branchId ? Branch::find($this->branchId) : null;
+        $this->useStations = (bool) ($branch?->use_preparation_stations);
     }
 
     // ─── Mesa navigation ──────────────────────────────────────────────────────
@@ -121,30 +131,63 @@ class Mostrador extends Component
         $this->selectedMesaName = $mesa->name;
         $this->selectedSectorName = $mesa->sector?->name ?? '';
 
-        // Find existing open cuenta or create a new one
+        // Only load an existing open cuenta here. A new cuenta is NOT created yet —
+        // we wait until the user actually adds the first item so that just opening
+        // and leaving a mesa doesn't flip its status to "ocupada".
         $cuenta = Cuenta::where('mesa_id', $mesa->id)->where('status', 'abierta')->first();
 
-        if (!$cuenta) {
-            $cuenta = Cuenta::create([
-                'mesa_id'   => $mesa->id,
-                'user_id'   => auth()->id(),
-                'branch_id' => $this->branchId,
-                'status'    => 'abierta',
-            ]);
-            // Mark mesa as occupied
-            $mesa->update(['status' => 'ocupada']);
+        if ($cuenta) {
+            $this->currentCuentaId = $cuenta->id;
+            $this->numPersons      = $cuenta->num_persons ?? 1;
+            $this->loadCartFromCuenta($cuenta);
+        } else {
+            $this->currentCuentaId = null;
+            $this->numPersons      = 1;
+            $this->cart            = [];
         }
 
-        $this->currentCuentaId = $cuenta->id;
-        $this->numPersons = $cuenta->num_persons ?? 1;
-        $this->loadCartFromCuenta($cuenta);
         $this->productSearch      = '';
         $this->selectedCategoryId = null;
         $this->view               = 'orden';
     }
 
+    /**
+     * Lazily create the cuenta + mark the mesa occupied the first time the user
+     * adds an item. Returns the cuenta id.
+     */
+    private function ensureCuenta(): int
+    {
+        if ($this->currentCuentaId) {
+            return $this->currentCuentaId;
+        }
+
+        $cuenta = Cuenta::create([
+            'mesa_id'   => $this->selectedMesaId,
+            'user_id'   => auth()->id(),
+            'branch_id' => $this->branchId,
+            'status'    => 'abierta',
+        ]);
+
+        Mesa::where('id', $this->selectedMesaId)->update(['status' => 'ocupada']);
+
+        $this->currentCuentaId = $cuenta->id;
+        return $cuenta->id;
+    }
+
     public function backToMesas(): void
     {
+        // If the user opened a mesa but never added anything (cuenta empty),
+        // delete the cuenta and free the mesa so it doesn't stay "ocupada".
+        if ($this->currentCuentaId) {
+            $itemCount = CuentaItem::where('cuenta_id', $this->currentCuentaId)->count();
+            if ($itemCount === 0) {
+                Cuenta::where('id', $this->currentCuentaId)->delete();
+                if ($this->selectedMesaId) {
+                    Mesa::where('id', $this->selectedMesaId)->update(['status' => 'libre']);
+                }
+            }
+        }
+
         $this->view             = 'mesas';
         $this->selectedMesaId   = null;
         $this->selectedMesaName = '';
@@ -187,6 +230,7 @@ class Mostrador extends Component
                 'station_name'         => $ps?->name,
                 'station_icon'         => $ps?->icon,
                 'station_color'        => $ps?->color,
+                'sent_at'              => $item->sent_at?->toDateTimeString(),
             ];
         }
     }
@@ -195,7 +239,7 @@ class Mostrador extends Component
 
     public function addProductToCart(int $productId): void
     {
-        $product = Product::with('tax')->find($productId);
+        $product = Product::with('tax', 'ingredients')->find($productId);
         if (!$product) return;
 
         // Stock check for managed-inventory products
@@ -203,6 +247,35 @@ class Mostrador extends Component
             $this->dispatch('notify', message: "Sin stock disponible para \"{$product->name}\"", type: 'error');
             return;
         }
+
+        // Ingredient-level stock check for "compuesto" products
+        // (validated up-front so we never send a comanda we can't prepare).
+        if ($product->product_type === 'compuesto') {
+            // How many of this product the cart currently holds (only unsent rows).
+            $currentInCart = 0.0;
+            foreach ($this->cart as $row) {
+                if (!empty($row['sent_at'])) continue;
+                if ($row['type'] === 'product' && $row['item_id'] == $productId) {
+                    $currentInCart += (float) $row['quantity'];
+                }
+            }
+            $neededQty = $currentInCart + 1;
+
+            foreach ($product->ingredients as $ingredient) {
+                if (!$ingredient->manage_inventory) continue;
+                $needed = (float) $ingredient->pivot->quantity * $neededQty;
+                if ((float) $ingredient->stock < $needed) {
+                    $this->dispatch('notify',
+                        message: "Sin ingrediente \"{$ingredient->name}\" suficiente para preparar \"{$product->name}\" (faltan).",
+                        type: 'error'
+                    );
+                    return;
+                }
+            }
+        }
+
+        // Lazily create the cuenta + mark mesa ocupada on first item
+        $this->ensureCuenta();
 
         // Price calculation (same logic as POS)
         $taxRate = 0.0;
@@ -277,6 +350,7 @@ class Mostrador extends Component
                 'station_name'           => $ps?->name,
                 'station_icon'           => $ps?->icon,
                 'station_color'          => $ps?->color,
+                'sent_at'                => null,
             ];
         }
     }
@@ -285,6 +359,9 @@ class Mostrador extends Component
     {
         $ingredient = Ingredient::with('tax')->find($ingredientId);
         if (!$ingredient || !$ingredient->show_in_pos) return;
+
+        // Lazily create the cuenta + mark mesa ocupada on first item
+        $this->ensureCuenta();
 
         $taxRate   = 0.0;
         $basePrice = (float) $ingredient->sale_price;
@@ -349,6 +426,7 @@ class Mostrador extends Component
                 'station_name'           => $ps?->name,
                 'station_icon'           => $ps?->icon,
                 'station_color'          => $ps?->color,
+                'sent_at'                => null,
             ];
         }
     }
@@ -361,12 +439,37 @@ class Mostrador extends Component
 
         // Stock check if product
         if ($item['type'] === 'product') {
-            $product = Product::find($item['item_id']);
+            $product = Product::with('ingredients')->find($item['item_id']);
             if ($product && $product->manages_inventory) {
                 $currentInCart = $item['quantity'] + 1;
                 if ($currentInCart > $product->current_stock) {
                     $this->dispatch('notify', message: "Stock insuficiente para \"{$item['name']}\"", type: 'error');
                     return;
+                }
+            }
+
+            // Compuesto: re-check ingredient stock for the increment.
+            if ($product && $product->product_type === 'compuesto') {
+                // Count all unsent rows of this same product across the cart.
+                $totalSameProduct = 0.0;
+                foreach ($this->cart as $row) {
+                    if (!empty($row['sent_at'])) continue;
+                    if ($row['type'] === 'product' && $row['item_id'] == $item['item_id']) {
+                        $totalSameProduct += (float) $row['quantity'];
+                    }
+                }
+                $neededQty = $totalSameProduct + 1; // +1 because we're incrementing now
+
+                foreach ($product->ingredients as $ingredient) {
+                    if (!$ingredient->manage_inventory) continue;
+                    $needed = (float) $ingredient->pivot->quantity * $neededQty;
+                    if ((float) $ingredient->stock < $needed) {
+                        $this->dispatch('notify',
+                            message: "Sin ingrediente \"{$ingredient->name}\" suficiente para preparar otro \"{$product->name}\".",
+                            type: 'error'
+                        );
+                        return;
+                    }
                 }
             }
         }
@@ -420,6 +523,166 @@ class Mostrador extends Component
         array_splice($this->cart, $idx, 1);
     }
 
+    // ─── Send to kitchen (generate comandas per preparation station) ───────────
+
+    /**
+     * Confirm the current batch of items:
+     *   - Items with a preparation_station_id  → create kitchen orders grouped by station
+     *   - Items without station                → just mark as sent (no kitchen order)
+     *
+     * Either way, after this call every cart item has sent_at set so it moves
+     * out of the "Pedido actual" list and into the "Ya pedido" summary.
+     */
+    public function sendToKitchen(): void
+    {
+        if (!$this->useStations) {
+            $this->dispatch('notify', message: 'Las comandas están desactivadas para esta sucursal', type: 'error');
+            return;
+        }
+
+        if (!auth()->user()->hasPermission('kitchen.send')) {
+            $this->dispatch('notify', message: 'No tienes permiso para hacer pedidos', type: 'error');
+            return;
+        }
+
+        if (empty($this->cart) || !$this->currentCuentaId) {
+            $this->dispatch('notify', message: 'No hay ítems por pedir', type: 'error');
+            return;
+        }
+
+        // Collect every unsent item; group those with a station separately.
+        $allUnsent = [];
+        $byStation = [];
+        foreach ($this->cart as $idx => $item) {
+            if (!empty($item['sent_at'])) continue;
+            $allUnsent[] = ['idx' => $idx, 'item' => $item];
+            if (!empty($item['preparation_station_id'])) {
+                $stationId = (int) $item['preparation_station_id'];
+                $byStation[$stationId][] = ['idx' => $idx, 'item' => $item];
+            }
+        }
+
+        if (empty($allUnsent)) {
+            $this->dispatch('notify', message: 'No hay ítems nuevos por pedir', type: 'info');
+            return;
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $now              = now();
+            $kitchenOrdersQty = 0;
+
+            // 1) Create one KitchenOrder per station that has items
+            foreach ($byStation as $stationId => $entries) {
+                $order = KitchenOrder::create([
+                    'number'                 => KitchenOrder::generateNumber(),
+                    'branch_id'              => $this->branchId,
+                    'cuenta_id'              => $this->currentCuentaId,
+                    'mesa_id'                => $this->selectedMesaId,
+                    'preparation_station_id' => $stationId,
+                    'user_id'                => auth()->id(),
+                    'status'                 => 'pending',
+                    'items_count'            => count($entries),
+                    'sent_at'                => $now,
+                ]);
+
+                foreach ($entries as $entry) {
+                    $item = $entry['item'];
+                    KitchenOrderItem::create([
+                        'kitchen_order_id' => $order->id,
+                        'cuenta_item_id'   => $item['cuenta_item_id'],
+                        'product_id'       => $item['type'] === 'product'    ? $item['item_id'] : null,
+                        'ingredient_id'    => $item['type'] === 'ingredient' ? $item['item_id'] : null,
+                        'item_name'        => $item['name'],
+                        'quantity'         => $item['quantity'],
+                        'notes'            => $item['notes'] ?: null,
+                        'status'           => 'pending',
+                    ]);
+                }
+
+                $kitchenOrdersQty++;
+            }
+
+            // 2) Mark every unsent cart item as sent (so the Mostrador clears them)
+            $cuentaItemIds = array_map(fn($e) => $e['item']['cuenta_item_id'], $allUnsent);
+            CuentaItem::whereIn('id', $cuentaItemIds)->update(['sent_at' => $now]);
+
+            foreach ($allUnsent as $entry) {
+                $this->cart[$entry['idx']]['sent_at'] = $now->toDateTimeString();
+            }
+
+            DB::commit();
+
+            $msg = $kitchenOrdersQty > 0
+                ? ($kitchenOrdersQty === 1
+                    ? 'Pedido realizado — 1 comanda enviada a cocina'
+                    : "Pedido realizado — {$kitchenOrdersQty} comandas enviadas")
+                : 'Pedido confirmado';
+            $this->dispatch('notify', message: $msg, type: 'success');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $this->dispatch('notify', message: 'Error al hacer pedido: ' . $e->getMessage(), type: 'error');
+        }
+    }
+
+    /**
+     * Whether there are items in the cart that have not been confirmed yet.
+     */
+    public function getHasUnsentItemsProperty(): bool
+    {
+        foreach ($this->cart as $item) {
+            if (empty($item['sent_at'])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Cart rows not yet confirmed (shown in the main "Pedido actual" list).
+     * Each entry keeps its original index so that the existing wire:click
+     * handlers (removeItem, incrementQty, openNotesModal, …) keep working.
+     */
+    public function getUnsentItemsProperty(): array
+    {
+        $out = [];
+        foreach ($this->cart as $idx => $item) {
+            if (empty($item['sent_at'])) {
+                $out[] = ['idx' => $idx, 'item' => $item];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Cart rows already confirmed (shown in the collapsible "Ya pedido" summary).
+     */
+    public function getSentItemsProperty(): array
+    {
+        $out = [];
+        foreach ($this->cart as $idx => $item) {
+            if (!empty($item['sent_at'])) {
+                $out[] = ['idx' => $idx, 'item' => $item];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Subtotal of unsent items only (current batch) — used in the CTA preview.
+     */
+    public function getPendingBatchTotalProperty(): float
+    {
+        $total = 0.0;
+        foreach ($this->cart as $item) {
+            if (empty($item['sent_at'])) {
+                $total += (float) $item['subtotal'] + (float) $item['tax_amount'];
+            }
+        }
+        return round($total, 2);
+    }
+
     // ─── Cart helpers ─────────────────────────────────────────────────────────
 
     private function findCartIndex(string $cartKey): ?int
@@ -428,6 +691,10 @@ class Mostrador extends Component
         $itemType = $type === 'p' ? 'product' : 'ingredient';
 
         foreach ($this->cart as $k => $item) {
+            // Skip items already confirmed in a previous "Hacer pedido" batch —
+            // we must keep them frozen and start a new row for the current batch.
+            if (!empty($item['sent_at'])) continue;
+
             if ($item['type'] === $itemType && $item['item_id'] == $id) {
                 return $k;
             }
@@ -516,24 +783,6 @@ class Mostrador extends Component
             return;
         }
 
-        // Pre-check ingredient stock for compuesto products
-        foreach ($this->cart as $item) {
-            if ($item['type'] !== 'product') continue;
-            $product = Product::with('ingredients')->find($item['item_id']);
-            if (!$product || $product->product_type !== 'compuesto') continue;
-            foreach ($product->ingredients as $ingredient) {
-                if (!$ingredient->manage_inventory) continue;
-                $needed = (float) $ingredient->pivot->quantity * (float) $item['quantity'];
-                if ((float) $ingredient->stock < $needed) {
-                    $this->dispatch('notify',
-                        message: "Stock insuficiente para ingrediente \"{$ingredient->name}\": necesita {$needed}, disponible {$ingredient->stock}",
-                        type: 'error'
-                    );
-                    return;
-                }
-            }
-        }
-
         try {
             DB::beginTransaction();
 
@@ -541,12 +790,16 @@ class Mostrador extends Component
             $subtotal = $this->getSubtotalProperty();
             $taxTotal = $this->getTaxTotalProperty();
 
+            // Resolve waiter (user who opened the cuenta) — distinct from the cashier.
+            $waiterId = Cuenta::where('id', $this->currentCuentaId)->value('user_id');
+
             // Create Sale
             $sale = Sale::create([
                 'branch_id'               => $this->branchId,
                 'cash_reconciliation_id'  => $this->openReconciliation->id,
                 'mesa_id'                 => $this->selectedMesaId,
                 'user_id'                 => auth()->id(),
+                'waiter_id'               => $waiterId,
                 'invoice_number'          => Sale::generateInvoiceNumber($this->branchId),
                 'subtotal'                => $subtotal,
                 'tax_total'               => $taxTotal,
@@ -637,10 +890,22 @@ class Mostrador extends Component
             ]);
             Mesa::where('id', $this->selectedMesaId)->update(['status' => 'libre']);
 
+            // Mark any remaining kitchen orders of this cuenta as delivered
+            KitchenOrder::where('cuenta_id', $this->currentCuentaId)
+                ->whereIn('status', ['pending', 'preparing', 'ready'])
+                ->update([
+                    'status'       => 'delivered',
+                    'delivered_at' => now(),
+                ]);
+
             DB::commit();
 
             ActivityLogService::logCreate('mostrador', $sale, "Venta desde Mostrador, Mesa: {$this->selectedMesaName}");
             $this->dispatch('notify', message: "Venta procesada correctamente — {$sale->invoice_number}", type: 'success');
+
+            // Open the receipt window (mirror of POS behavior)
+            $this->dispatch('print-receipt', saleId: $sale->id);
+
             $this->backToMesas();
         } catch (\Exception $e) {
             DB::rollBack();
@@ -660,6 +925,11 @@ class Mostrador extends Component
         if ($this->currentCuentaId) {
             Cuenta::where('id', $this->currentCuentaId)->update(['status' => 'cancelada']);
             Mesa::where('id', $this->selectedMesaId)->update(['status' => 'libre']);
+
+            // Cancel pending kitchen orders for this cuenta
+            KitchenOrder::where('cuenta_id', $this->currentCuentaId)
+                ->whereIn('status', ['pending', 'preparing', 'ready'])
+                ->update(['status' => 'cancelled']);
         }
         $this->dispatch('notify', message: 'Cuenta cancelada', type: 'success');
         $this->backToMesas();
@@ -678,7 +948,9 @@ class Mostrador extends Component
     {
         if ($this->numPersons < 99) {
             $this->numPersons++;
-            Cuenta::where('id', $this->currentCuentaId)->update(['num_persons' => $this->numPersons]);
+            if ($this->currentCuentaId) {
+                Cuenta::where('id', $this->currentCuentaId)->update(['num_persons' => $this->numPersons]);
+            }
         }
     }
 
@@ -686,7 +958,9 @@ class Mostrador extends Component
     {
         if ($this->numPersons > 1) {
             $this->numPersons--;
-            Cuenta::where('id', $this->currentCuentaId)->update(['num_persons' => $this->numPersons]);
+            if ($this->currentCuentaId) {
+                Cuenta::where('id', $this->currentCuentaId)->update(['num_persons' => $this->numPersons]);
+            }
         }
     }
 
@@ -878,12 +1152,16 @@ class Mostrador extends Component
             $taxAcc      = round($taxAcc, 2);
             $totalSplit  = round($subtotalAcc + $taxAcc, 2);
 
+            // Resolve waiter (user who opened the cuenta) — distinct from the cashier.
+            $waiterId = Cuenta::where('id', $this->currentCuentaId)->value('user_id');
+
             // Create partial sale
             $sale = Sale::create([
                 'branch_id'               => $this->branchId,
                 'cash_reconciliation_id'  => $this->openReconciliation->id,
                 'mesa_id'                 => $this->selectedMesaId,
                 'user_id'                 => auth()->id(),
+                'waiter_id'               => $waiterId,
                 'invoice_number'          => Sale::generateInvoiceNumber($this->branchId),
                 'subtotal'                => $subtotalAcc,
                 'tax_total'               => $taxAcc,
@@ -959,6 +1237,7 @@ class Mostrador extends Component
                 Cuenta::where('id', $this->currentCuentaId)->update(['status' => 'cerrada', 'sale_id' => $sale->id]);
                 Mesa::where('id', $this->selectedMesaId)->update(['status' => 'libre']);
                 $this->dispatch('notify', message: "Cuenta cerrada — {$sale->invoice_number}", type: 'success');
+                $this->dispatch('print-receipt', saleId: $sale->id);
                 $this->showSplitModal = false;
                 $this->backToMesas();
             } else {
@@ -969,6 +1248,7 @@ class Mostrador extends Component
                 $this->splitQty = [];
                 $this->splitPayments = [['method_id' => null, 'amount' => 0]];
                 $this->dispatch('notify', message: "Pago parcial registrado — {$sale->invoice_number}", type: 'success');
+                $this->dispatch('print-receipt', saleId: $sale->id);
             }
         } catch (\Exception $e) {
             DB::rollBack();

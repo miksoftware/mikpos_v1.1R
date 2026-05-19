@@ -12,6 +12,9 @@ Route::get('/', function () {
     if (!file_exists(storage_path('installed.lock'))) {
         return redirect('/install');
     }
+    if (auth()->check()) {
+        return redirect(auth()->user()->landingRoute());
+    }
     return redirect('/login');
 });
 
@@ -266,6 +269,16 @@ Route::middleware(['auth'])->group(function () {
         ->name('mostrador')
         ->middleware('permission:mostrador.view');
 
+    // Kitchen Orders (comandas per preparation station)
+    Route::get('/comandas', App\Livewire\KitchenOrders::class)
+        ->name('kitchen-orders')
+        ->middleware('permission:kitchen.view');
+
+    // Kitchen Panel — scoped to the user's assigned preparation stations
+    Route::get('/cocina', App\Livewire\KitchenPanel::class)
+        ->name('kitchen-panel')
+        ->middleware('permission:kitchen_panel.view');
+
     // POS Receipt
     Route::get('/receipt/{sale}', function (App\Models\Sale $sale) {
         // Load relationships needed for the receipt
@@ -276,6 +289,8 @@ Route::middleware(['auth'])->group(function () {
             'customer.municipality',
             'customer.department',
             'user',
+            'waiter',
+            'mesa.sector',
             'items',
             'payments.paymentMethod',
             'cashReconciliation.cashRegister',

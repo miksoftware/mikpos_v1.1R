@@ -21,7 +21,18 @@ class CheckPermission
                 abort(403, 'No tienes permiso para realizar esta acción.');
             }
 
-            // Show 403 error page instead of redirect to avoid loops
+            // For normal navigation, redirect the user to a page they DO have
+            // access to instead of slamming them with a 403 (e.g. a cook hitting
+            // /dashboard right after login).
+            $landing = $user->landingRoute();
+            if ($landing && $landing !== $request->url() && $landing !== route('login')) {
+                return redirect($landing)->with(
+                    'flash_warning',
+                    'No tienes acceso a esa sección. Te llevamos a tu panel.'
+                );
+            }
+
+            // Show 403 error page if there's nowhere safe to send them
             abort(403, 'No tienes permiso para acceder a esta sección.');
         }
 

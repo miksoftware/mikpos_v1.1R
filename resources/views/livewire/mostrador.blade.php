@@ -5,32 +5,77 @@
     {{-- ──────────────────────────────────────────────────────────────────────── --}}
     @if($view === 'mesas')
 
-    {{-- Header --}}
-    <div class="flex items-center justify-between">
-        <div>
-            <h1 class="text-2xl font-bold text-slate-900">Mostrador</h1>
-            <p class="text-slate-500 text-sm mt-0.5">Selecciona una mesa para tomar el pedido</p>
+    @php
+        $totalMesas   = $mesas->count();
+        $mesasOcupadas = $mesas->where('status', 'ocupada')->count();
+        $mesasLibres   = $totalMesas - $mesasOcupadas;
+        $totalVentaAbierta = $mesas->filter(fn($m) => $m->status === 'ocupada' && $m->cuenta)
+                                    ->sum(fn($m) => $m->cuenta->getTotal());
+    @endphp
+
+    {{-- Header with salmon border (no dark fill) --}}
+    <div class="bg-white border-2 border-[#ff7261]/40 rounded-2xl shadow-sm p-5">
+
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+                <h1 class="text-2xl md:text-3xl font-bold text-slate-900 flex items-center gap-2">
+                    <span class="text-3xl">🍽️</span>
+                    Mostrador
+                </h1>
+                <p class="text-slate-500 text-sm mt-1">Selecciona una mesa para tomar el pedido</p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-3">
+                @if($needsReconciliation)
+                <div class="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-xl text-xs font-medium text-amber-700">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    Caja no abierta
+                </div>
+                @endif
+
+                @if($useStations && auth()->user()->hasPermission('kitchen.view'))
+                <a href="{{ route('kitchen-orders') }}"
+                    class="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#ff7261] to-[#a855f7] hover:shadow-lg hover:shadow-[#ff7261]/30 text-white text-sm font-semibold rounded-xl transition-all cursor-pointer">
+                    <span class="text-base">👨‍🍳</span>
+                    Comandas
+                </a>
+                @endif
+            </div>
         </div>
-        @if($needsReconciliation)
-        <div class="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-xl text-xs font-medium text-amber-700">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            Caja no abierta
+
+        {{-- Stats grid --}}
+        <div class="mt-5 grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                <div class="text-[11px] text-slate-500 uppercase font-medium">Total mesas</div>
+                <div class="text-2xl font-bold text-slate-800 mt-0.5">{{ $totalMesas }}</div>
+            </div>
+            <div class="bg-green-50 border border-green-200 rounded-xl p-3">
+                <div class="text-[11px] text-green-600 uppercase font-medium">Disponibles</div>
+                <div class="text-2xl font-bold text-green-700 mt-0.5">{{ $mesasLibres }}</div>
+            </div>
+            <div class="bg-red-50 border border-red-200 rounded-xl p-3">
+                <div class="text-[11px] text-red-600 uppercase font-medium">Ocupadas</div>
+                <div class="text-2xl font-bold text-red-700 mt-0.5">{{ $mesasOcupadas }}</div>
+            </div>
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                <div class="text-[11px] text-amber-600 uppercase font-medium">Abierto</div>
+                <div class="text-2xl font-bold text-amber-700 mt-0.5">${{ number_format($totalVentaAbierta, 0) }}</div>
+            </div>
         </div>
-        @endif
     </div>
 
     {{-- Sector filter pills --}}
     @if($sectors->count() > 0)
     <div class="flex flex-wrap gap-2">
         <button wire:click="selectSector(null)"
-            class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors
-                {{ is_null($selectedSectorId) ? 'bg-gradient-to-r from-[#ff7261] to-[#a855f7] text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#ff7261] hover:text-[#ff7261]' }}">
+            class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer
+                {{ is_null($selectedSectorId) ? 'bg-gradient-to-r from-[#ff7261] to-[#a855f7] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#ff7261] hover:text-[#ff7261]' }}">
             Todos
         </button>
         @foreach($sectors as $sector)
         <button wire:click="selectSector({{ $sector->id }})"
-            class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors
-                {{ $selectedSectorId == $sector->id ? 'bg-gradient-to-r from-[#ff7261] to-[#a855f7] text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#ff7261] hover:text-[#ff7261]' }}">
+            class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer
+                {{ $selectedSectorId == $sector->id ? 'bg-gradient-to-r from-[#ff7261] to-[#a855f7] text-white shadow-md' : 'bg-white border border-slate-200 text-slate-600 hover:border-[#ff7261] hover:text-[#ff7261]' }}">
             {{ $sector->name }}
         </button>
         @endforeach
@@ -47,56 +92,65 @@
             $cuentaTotal = $isOcupada ? ($mesa->cuenta ? $mesa->cuenta->getTotal() : 0) : 0;
         @endphp
         <button wire:click="openMesa({{ $mesa->id }})"
-            class="relative flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border-2 transition-all duration-200 text-center
+            class="group relative flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border-2 transition-all duration-200 text-center shadow-sm hover:shadow-xl hover:-translate-y-0.5 overflow-hidden cursor-pointer
                 {{ $isOcupada
-                    ? 'bg-red-50 border-red-300 hover:border-red-400 hover:bg-red-100'
-                    : 'bg-green-50 border-green-300 hover:border-green-400 hover:bg-green-100' }}">
+                    ? 'bg-gradient-to-br from-red-50 to-rose-50 border-red-300 hover:border-red-400'
+                    : 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-300 hover:border-green-400' }}">
+
+            {{-- Corner decoration --}}
+            <div class="absolute top-0 right-0 w-14 h-14 opacity-30
+                {{ $isOcupada ? 'bg-red-300' : 'bg-green-300' }}"
+                style="clip-path: polygon(100% 0, 0 0, 100% 100%);"></div>
 
             {{-- Status icon --}}
-            <div class="w-12 h-12 rounded-full flex items-center justify-center
-                {{ $isOcupada ? 'bg-red-100' : 'bg-green-100' }}">
+            <div class="relative w-14 h-14 rounded-full flex items-center justify-center shadow-inner transform group-hover:scale-110 transition-transform
+                {{ $isOcupada ? 'bg-gradient-to-br from-red-100 to-red-200' : 'bg-gradient-to-br from-green-100 to-green-200' }}">
                 @if($isOcupada)
-                <svg class="w-6 h-6 text-red-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor">
+                <svg class="w-7 h-7 text-red-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor">
                     <path d="M160-160q-33 0-56.5-23.5T80-240v-440h80v440h280v80H160Zm120-560q-33 0-56.5-23.5T200-800q0-33 23.5-56.5T280-880q33 0 56.5 23.5T360-800q0 33-23.5 56.5T280-720ZM480-80v-200H280q-33 0-56.5-23.5T200-360v-236q0-35 24-59.5t58-24.5q19 0 35.5 8t28.5 22q45 49 96.5 89.5T560-520h54q-25-17-39.5-42.5T560-620h241q0 32-14.5 57.5T747-520h133v80H720v360h-80v-360h-80q-53 0-107-23t-93-55v138h120q33 0 56.5 23.5T560-300v220h-80Z"/>
                 </svg>
                 @else
-                <svg class="w-6 h-6 text-green-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor">
+                <svg class="w-7 h-7 text-green-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor">
                     <path d="M173-600h614l-34-120H208l-35 120Zm307-60Zm192 140H289l-11 80h404l-10-80ZM160-160l49-360h-89q-20 0-31.5-16T82-571l57-200q4-13 14-21t24-8h606q14 0 24 8t14 21l57 200q5 19-6.5 35T840-520h-88l48 360h-80l-27-200H267l-27 200h-80Z"/>
                 </svg>
                 @endif
             </div>
 
             {{-- Mesa name --}}
-            <div class="font-bold text-slate-800 text-sm leading-tight">{{ $mesa->name }}</div>
+            <div class="font-bold text-slate-800 text-base leading-tight">{{ $mesa->name }}</div>
 
             {{-- Sector badge --}}
             @if($mesa->sector)
-            <div class="text-xs text-slate-500">{{ $mesa->sector->name }}</div>
+            <div class="text-xs text-slate-500 -mt-1">{{ $mesa->sector->name }}</div>
             @endif
 
             {{-- Status badge --}}
             @if($isOcupada)
-            <div class="flex flex-col items-center gap-0.5">
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+            <div class="flex flex-col items-center gap-0.5 w-full">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500 text-white">
+                    <span class="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
                     OCUPADA
                 </span>
                 @if($itemCount > 0)
-                <span class="text-xs text-slate-500">{{ $itemCount }} {{ $itemCount === 1 ? 'ítem' : 'ítems' }}</span>
+                <span class="text-xs text-slate-500 font-medium">{{ $itemCount }} {{ $itemCount === 1 ? 'ítem' : 'ítems' }}</span>
                 @endif
                 @if($cuentaTotal > 0)
-                <span class="text-xs font-semibold text-slate-700">${{ number_format($cuentaTotal, 2) }}</span>
+                <span class="text-sm font-bold bg-gradient-to-r from-[#ff7261] to-[#a855f7] bg-clip-text text-transparent">
+                    ${{ number_format($cuentaTotal, 2) }}
+                </span>
                 @endif
             </div>
             @else
-            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
-                DISPONIBLE
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-500 text-white">
+                <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+                LIBRE
             </span>
             @endif
         </button>
         @endforeach
     </div>
     @else
-    <div class="flex flex-col items-center justify-center py-20 text-slate-400">
+    <div class="flex flex-col items-center justify-center py-20 text-slate-400 bg-white rounded-2xl border border-slate-200">
         <svg class="w-14 h-14 mb-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 10h18M3 14h18M10 4v16M14 4v16M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z"/>
         </svg>
@@ -114,95 +168,112 @@
     {{-- ──────────────────────────────────────────────────────────────────────── --}}
     @if($view === 'orden')
 
-    <div class="flex flex-col h-[calc(100vh-8rem)] -mt-2" x-data="{ searchFocus: false }">
+    <div class="flex flex-col h-[calc(100vh-8rem)] -mt-2" x-data="{ searchFocus: false, showSent: false }">
 
         {{-- Top bar: mesa info + persons counter + options --}}
-        <div class="flex items-center justify-between mb-3 flex-shrink-0">
-            <div class="flex items-center gap-3">
-                <button wire:click="backToMesas"
-                    class="p-2 rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
-                    </svg>
-                </button>
-                <div>
-                    <div class="flex items-center gap-2">
-                        <h2 class="text-lg font-bold text-slate-900">{{ $selectedMesaName }}</h2>
-                        @if($selectedSectorName)
-                        <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
-                            {{ $selectedSectorName }}
-                        </span>
-                        @endif
-                    </div>
-                    <p class="text-xs text-slate-500">{{ count($cart) }} {{ count($cart) === 1 ? 'ítem en la orden' : 'ítems en la orden' }}</p>
-                </div>
-            </div>
-
-            {{-- Right: persons counter + options dropdown --}}
-            <div class="flex items-center gap-3">
-
-                {{-- Persons counter --}}
-                <div class="flex items-center gap-1 px-2 py-1 bg-white border border-slate-200 rounded-xl shadow-sm">
-                    <button wire:click="decrementPersons"
-                        class="w-6 h-6 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-sm transition-colors">−</button>
-                    <div class="flex items-center gap-1 px-2">
-                        <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
-                        </svg>
-                        <span class="text-sm font-semibold text-slate-800 min-w-[1.25rem] text-center">{{ $numPersons }}</span>
-                    </div>
-                    <button wire:click="incrementPersons"
-                        class="w-6 h-6 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-sm transition-colors">+</button>
-                </div>
-
-                {{-- Options dropdown --}}
-                <div x-data="{ open: false }" class="relative">
-                    <button @click="open = !open" @click.outside="open = false"
-                        class="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 shadow-sm transition-colors">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
-                        </svg>
-                        Opciones
-                        <svg class="w-3 h-3 text-slate-400 transition-transform" :class="open ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        <div class="bg-white border-2 border-[#ff7261]/40 rounded-2xl shadow-sm mb-3 flex-shrink-0">
+            <div class="flex items-center justify-between gap-3 px-4 py-3">
+                <div class="flex items-center gap-3 min-w-0">
+                    <button wire:click="backToMesas"
+                        class="p-2 rounded-xl text-slate-500 hover:bg-[#ff7261]/10 hover:text-[#ff7261] transition-colors flex-shrink-0 cursor-pointer">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
                         </svg>
                     </button>
-                    <div x-show="open" x-cloak x-transition
-                        class="absolute right-0 mt-1 w-52 bg-white border border-slate-200 rounded-xl shadow-lg z-50 py-1 overflow-hidden">
-                        <button @click="open=false" wire:click="openComanda"
-                            class="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
-                            <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h2 class="text-xl font-bold text-slate-900 truncate">{{ $selectedMesaName }}</h2>
+                            @if($selectedSectorName)
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#ff7261]/10 text-[#ff7261] border border-[#ff7261]/20">
+                                {{ $selectedSectorName }}
+                            </span>
+                            @endif
+                        </div>
+                        <p class="text-[11px] text-slate-500 mt-0.5">
+                            @php
+                                $unsentCount = count($this->unsentItems);
+                                $sentCount   = count($this->sentItems);
+                            @endphp
+                            @if($unsentCount > 0)
+                                <span class="text-emerald-600 font-semibold">{{ $unsentCount }} {{ $unsentCount === 1 ? 'ítem nuevo' : 'ítems nuevos' }}</span>
+                                @if($sentCount > 0) · @endif
+                            @endif
+                            @if($sentCount > 0)
+                                <span class="text-slate-500">{{ $sentCount }} ya pedido{{ $sentCount === 1 ? '' : 's' }}</span>
+                            @endif
+                            @if($unsentCount === 0 && $sentCount === 0)
+                                Sin ítems aún
+                            @endif
+                        </p>
+                    </div>
+                </div>
+
+                {{-- Right: persons counter + options dropdown --}}
+                <div class="flex items-center gap-2 flex-shrink-0">
+
+                    {{-- Persons counter --}}
+                    <div class="flex items-center gap-1 px-2 py-1 bg-white border border-slate-200 rounded-xl shadow-sm">
+                        <button wire:click="decrementPersons"
+                            class="w-6 h-6 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-sm transition-colors cursor-pointer">−</button>
+                        <div class="flex items-center gap-1 px-1.5">
+                            <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
                             </svg>
-                            Ver comandas
-                        </button>
-                        <button @click="open=false" wire:click="openPrecuenta"
-                            class="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
-                            <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                            <span class="text-sm font-bold text-slate-800 min-w-[1.25rem] text-center">{{ $numPersons }}</span>
+                        </div>
+                        <button wire:click="incrementPersons"
+                            class="w-6 h-6 flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-sm transition-colors cursor-pointer">+</button>
+                    </div>
+
+                    {{-- Options dropdown --}}
+                    <div x-data="{ open: false }" class="relative">
+                        <button @click="open = !open" @click.outside="open = false"
+                            class="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 shadow-sm transition-colors cursor-pointer">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
                             </svg>
-                            Precuenta
-                        </button>
-                        <button @click="open=false" wire:click="openChangeMesaModal"
-                            class="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
-                            <svg class="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
+                            Opciones
+                            <svg class="w-3 h-3 text-slate-400 transition-transform" :class="open ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                             </svg>
-                            Cambiar mesa
                         </button>
-                        <button @click="open=false" wire:click="openSplitModal"
-                            class="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
-                            <svg class="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                            </svg>
-                            Dividir cuenta
-                        </button>
-                        <div class="my-1 border-t border-slate-100"></div>
-                        <button @click="open=false" wire:click="confirmCancelarCuenta"
-                            class="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                            Cancelar cuenta
-                        </button>
+                        <div x-show="open" x-cloak x-transition
+                            class="absolute right-0 mt-1 w-52 bg-white border border-slate-200 rounded-xl shadow-lg z-50 py-1 overflow-hidden">
+                            <button @click="open=false" wire:click="openComanda"
+                                class="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer">
+                                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                </svg>
+                                Ver comandas
+                            </button>
+                            <button @click="open=false" wire:click="openPrecuenta"
+                                class="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer">
+                                <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                                </svg>
+                                Precuenta
+                            </button>
+                            <button @click="open=false" wire:click="openChangeMesaModal"
+                                class="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer">
+                                <svg class="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
+                                </svg>
+                                Cambiar mesa
+                            </button>
+                            <button @click="open=false" wire:click="openSplitModal"
+                                class="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer">
+                                <svg class="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                                </svg>
+                                Dividir cuenta
+                            </button>
+                            <div class="my-1 border-t border-slate-100"></div>
+                            <button @click="open=false" wire:click="confirmCancelarCuenta"
+                                class="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors cursor-pointer">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                Cancelar cuenta
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -214,15 +285,66 @@
             {{-- ── LEFT: Order panel ───────────────────────────────────────── --}}
             <div class="w-2/5 flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
 
-                <div class="px-4 py-3 border-b border-slate-100 bg-slate-50">
-                    <h3 class="text-sm font-semibold text-slate-600 uppercase tracking-wide">Pedido</h3>
+                {{-- Panel header: current batch title + "Ya pedido" toggle --}}
+                <div class="px-4 py-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-[#ff7261] to-[#a855f7] flex items-center justify-center">
+                            <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-bold text-slate-900 leading-tight">Pedido actual</h3>
+                            <p class="text-[10px] text-slate-500 leading-tight">Nuevos ítems para enviar</p>
+                        </div>
+                    </div>
+
+                    @if(count($this->sentItems) > 0)
+                    <button @click="showSent = !showSent"
+                        class="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors cursor-pointer">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        <span x-text="showSent ? 'Ocultar' : 'Ya pedido ({{ count($this->sentItems) }})'"></span>
+                    </button>
+                    @endif
                 </div>
 
-                {{-- Cart items (scrollable) --}}
+                {{-- ═══ SENT ITEMS (collapsible summary) ═══ --}}
+                @if(count($this->sentItems) > 0)
+                <div x-show="showSent" x-collapse class="border-b-2 border-emerald-100 bg-emerald-50/30">
+                    <div class="px-4 py-2 flex items-center justify-between">
+                        <div class="flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 uppercase tracking-wide">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                            Ya pedido
+                        </div>
+                        <span class="text-[10px] text-slate-500">Solo lectura</span>
+                    </div>
+                    <div class="max-h-40 overflow-y-auto divide-y divide-emerald-100/60">
+                        @foreach($this->sentItems as $entry)
+                        @php $item = $entry['item']; @endphp
+                        <div class="flex items-center gap-2 px-4 py-1.5 text-xs">
+                            <span class="inline-flex items-center justify-center w-5 h-5 rounded bg-emerald-100 text-emerald-700 font-bold text-[10px] flex-shrink-0">
+                                {{ rtrim(rtrim(number_format((float)$item['quantity'], 3), '0'), '.') }}
+                            </span>
+                            <span class="flex-1 text-slate-700 truncate">{{ $item['name'] }}</span>
+                            @if(!empty($item['station_name']))
+                            <span class="text-[9px] px-1.5 py-0.5 rounded-full font-medium text-white flex-shrink-0"
+                                style="background-color: {{ $item['station_color'] ?? '#6b7280' }};">
+                                {{ $item['station_icon'] ?? '' }}
+                            </span>
+                            @endif
+                            <span class="text-slate-600 font-semibold w-14 text-right flex-shrink-0">
+                                ${{ number_format($item['subtotal'] + $item['tax_amount'], 2) }}
+                            </span>
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+                @endif
+
+                {{-- ═══ UNSENT ITEMS (the "new batch" being built) ═══ --}}
                 <div class="flex-1 overflow-y-auto divide-y divide-slate-100">
-                    @forelse($cart as $idx => $item)
-                    <div class="flex items-start gap-3 px-4 py-3">
-                        {{-- Item type badge --}}
+                    @forelse($this->unsentItems as $entry)
+                    @php $idx = $entry['idx']; $item = $entry['item']; @endphp
+                    <div class="flex items-start gap-3 px-4 py-3 hover:bg-slate-50/40 transition-colors animate-[slideIn_200ms_ease-out]">
+                        {{-- Item type icon --}}
                         <div class="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center mt-0.5
                             {{ $item['type'] === 'ingredient' ? 'bg-amber-100' : 'bg-purple-100' }}">
                             @if($item['type'] === 'ingredient')
@@ -232,89 +354,127 @@
                             @endif
                         </div>
 
-                        {{-- Name + badges + price --}}
                         <div class="flex-1 min-w-0">
-                            <p class="text-sm font-medium text-slate-800 truncate">{{ $item['name'] }}</p>
-                            <div class="flex flex-wrap items-center gap-1 mt-0.5">
-                                <p class="text-xs text-slate-500">${{ number_format($item['unit_price'] + ($item['tax_rate'] > 0 ? $item['unit_price'] * $item['tax_rate'] / 100 : 0), 2) }} c/u</p>
-                                {{-- Station badge --}}
+                            <p class="text-sm font-semibold text-slate-800 truncate leading-tight">{{ $item['name'] }}</p>
+                            <div class="flex flex-wrap items-center gap-1 mt-1">
+                                <p class="text-[11px] text-slate-500">${{ number_format($item['unit_price'] + ($item['tax_rate'] > 0 ? $item['unit_price'] * $item['tax_rate'] / 100 : 0), 2) }} c/u</p>
                                 @if(!empty($item['station_name']))
-                                <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium text-white"
+                                <span class="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-semibold text-white"
                                     style="background-color: {{ $item['station_color'] ?? '#6b7280' }};">
                                     {{ $item['station_icon'] ?? '' }} {{ $item['station_name'] }}
                                 </span>
                                 @endif
-                                {{-- Notes badge + edit --}}
                                 <button wire:click="openNotesModal({{ $idx }})"
-                                    class="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full transition-colors
+                                    class="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full transition-colors cursor-pointer
                                         {{ !empty($item['notes']) ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200' }}">
                                     <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
-                                    {{ !empty($item['notes']) ? 'Nota' : 'Nota' }}
+                                    Nota
                                 </button>
                             </div>
                             @if(!empty($item['notes']))
-                            <p class="text-[10px] text-yellow-700 mt-0.5 italic truncate">{{ $item['notes'] }}</p>
+                            <p class="text-[10px] text-yellow-700 mt-0.5 italic truncate">📝 {{ $item['notes'] }}</p>
                             @endif
                         </div>
 
                         {{-- Qty controls --}}
-                        <div class="flex items-center gap-1.5 flex-shrink-0">
+                        <div class="flex items-center gap-1 flex-shrink-0 bg-slate-50 rounded-lg p-0.5">
                             <button wire:click="decrementQty({{ $idx }})"
-                                class="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors font-bold text-base leading-none">
+                                class="w-6 h-6 rounded-md bg-white shadow-sm hover:bg-slate-100 flex items-center justify-center text-slate-600 transition-colors font-bold text-sm leading-none cursor-pointer">
                                 −
                             </button>
-                            <span class="w-8 text-center text-sm font-semibold text-slate-800">{{ (int) $item['quantity'] }}</span>
+                            <span class="w-6 text-center text-sm font-bold text-slate-800">{{ (int) $item['quantity'] }}</span>
                             <button wire:click="incrementQty({{ $idx }})"
-                                class="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors font-bold text-base leading-none">
+                                class="w-6 h-6 rounded-md bg-white shadow-sm hover:bg-slate-100 flex items-center justify-center text-slate-600 transition-colors font-bold text-sm leading-none cursor-pointer">
                                 +
                             </button>
                         </div>
 
-                        {{-- Subtotal --}}
-                        <div class="text-sm font-semibold text-slate-800 w-16 text-right flex-shrink-0">
-                            ${{ number_format($item['subtotal'] + $item['tax_amount'], 2) }}
+                        <div class="flex flex-col items-end gap-1 flex-shrink-0">
+                            <span class="text-sm font-bold text-slate-900">${{ number_format($item['subtotal'] + $item['tax_amount'], 2) }}</span>
+                            <button wire:click="removeItem({{ $idx }})"
+                                class="p-0.5 text-slate-300 hover:text-red-500 transition-colors rounded cursor-pointer">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                            </button>
                         </div>
-
-                        {{-- Remove --}}
-                        <button wire:click="removeItem({{ $idx }})"
-                            class="flex-shrink-0 p-1 text-slate-300 hover:text-red-500 transition-colors rounded">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                        </button>
                     </div>
                     @empty
-                    <div class="flex flex-col items-center justify-center py-12 text-slate-400">
-                        <svg class="w-10 h-10 mb-2 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-                        <p class="text-sm">Selecciona productos del menú</p>
+                    <div class="flex flex-col items-center justify-center h-full py-12 px-4 text-slate-400">
+                        @if(count($this->sentItems) > 0)
+                            <div class="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mb-3">
+                                <svg class="w-7 h-7 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            </div>
+                            <p class="text-sm font-semibold text-slate-700">Todo pedido</p>
+                            <p class="text-xs mt-1 text-center">Agrega más productos del menú para seguir pidiendo</p>
+                        @else
+                            <svg class="w-12 h-12 mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                            <p class="text-sm font-medium text-slate-500">Pedido vacío</p>
+                            <p class="text-xs mt-1">Selecciona productos del menú</p>
+                        @endif
                     </div>
                     @endforelse
                 </div>
 
+                <style>
+                    @keyframes slideIn {
+                        from { opacity: 0; transform: translateX(-8px); }
+                        to   { opacity: 1; transform: translateX(0); }
+                    }
+                </style>
+
                 {{-- Order footer / totals --}}
-                <div class="border-t border-slate-200 px-4 py-3 bg-slate-50 flex-shrink-0 space-y-1">
-                    <div class="flex justify-between text-sm text-slate-600">
-                        <span>Subtotal</span>
-                        <span>${{ number_format($subtotal, 2) }}</span>
-                    </div>
-                    @if($taxTotal > 0)
-                    <div class="flex justify-between text-sm text-slate-600">
-                        <span>Impuestos</span>
-                        <span>${{ number_format($taxTotal, 2) }}</span>
-                    </div>
-                    @endif
-                    <div class="flex justify-between text-base font-bold text-slate-900 pt-1 border-t border-slate-200">
-                        <span>Total</span>
-                        <span class="text-[#ff7261]">${{ number_format($total, 2) }}</span>
+                <div class="border-t border-slate-200 px-4 py-3 bg-gradient-to-br from-slate-50 to-white flex-shrink-0 space-y-2">
+
+                    {{-- Totals --}}
+                    <div class="space-y-0.5">
+                        <div class="flex justify-between text-xs text-slate-500">
+                            <span>Subtotal (mesa)</span>
+                            <span>${{ number_format($subtotal, 2) }}</span>
+                        </div>
+                        @if($taxTotal > 0)
+                        <div class="flex justify-between text-xs text-slate-500">
+                            <span>Impuestos</span>
+                            <span>${{ number_format($taxTotal, 2) }}</span>
+                        </div>
+                        @endif
+                        <div class="flex justify-between items-baseline pt-1 border-t border-dashed border-slate-200">
+                            <span class="text-sm font-bold text-slate-900">Total mesa</span>
+                            <span class="text-xl font-extrabold bg-gradient-to-r from-[#ff7261] to-[#a855f7] bg-clip-text text-transparent">
+                                ${{ number_format($total, 2) }}
+                            </span>
+                        </div>
                     </div>
 
+                    {{-- CTA: Hacer pedido (only if station-mode enabled) --}}
+                    @if($useStations && auth()->user()->hasPermission('kitchen.send'))
+                    <button wire:click="sendToKitchen"
+                        @class(['w-full px-4 py-3 text-sm font-bold rounded-xl transition-all inline-flex items-center justify-center gap-2 relative overflow-hidden group',
+                            'bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:shadow-xl hover:shadow-emerald-500/40 hover:-translate-y-0.5 animate-[ctaGlow_2.5s_ease-in-out_infinite] cursor-pointer' => $this->hasUnsentItems,
+                            'bg-slate-100 text-slate-400 cursor-not-allowed' => !$this->hasUnsentItems])
+                        @disabled(!$this->hasUnsentItems)>
+                        @if($this->hasUnsentItems)
+                        <span class="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></span>
+                        @endif
+                        <svg class="w-5 h-5 relative" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+                        <span class="relative">
+                            {{ $this->hasUnsentItems ? 'Hacer pedido · $' . number_format($this->pendingBatchTotal, 2) : 'Sin ítems por pedir' }}
+                        </span>
+                    </button>
+                    <style>
+                        @keyframes ctaGlow {
+                            0%, 100% { box-shadow: 0 4px 14px 0 rgba(16, 185, 129, 0.35); }
+                            50%      { box-shadow: 0 6px 20px 4px rgba(16, 185, 129, 0.5); }
+                        }
+                    </style>
+                    @endif
+
+                    {{-- CTA: Cobrar --}}
                     <button wire:click="openPaymentModal"
-                        @class(['w-full mt-2 px-4 py-3 text-sm font-bold text-white rounded-xl transition-opacity',
-                            'bg-gradient-to-r from-[#ff7261] to-[#a855f7] hover:opacity-90' => count($cart) > 0,
+                        @class(['w-full px-4 py-3 text-sm font-bold text-white rounded-xl transition-all inline-flex items-center justify-center gap-2',
+                            'bg-gradient-to-r from-[#ff7261] to-[#a855f7] hover:shadow-xl hover:shadow-purple-500/30 hover:-translate-y-0.5 cursor-pointer' => count($cart) > 0,
                             'bg-slate-200 text-slate-400 cursor-not-allowed' => count($cart) === 0])
                         @disabled(count($cart) === 0)>
-                        <span class="flex items-center justify-center gap-2">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
-                            Cobrar ${{ number_format($total, 2) }}
-                        </span>
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                        Cobrar ${{ number_format($total, 2) }}
                     </button>
                 </div>
             </div>
@@ -339,13 +499,13 @@
                     @if($categories->count() > 0)
                     <div class="flex gap-1.5 flex-wrap">
                         <button wire:click="selectCategory(null)"
-                            class="px-3 py-1 rounded-full text-xs font-medium transition-colors
+                            class="px-3 py-1 rounded-full text-xs font-medium transition-colors cursor-pointer
                                 {{ is_null($selectedCategoryId) ? 'bg-[#ff7261] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
                             Todo
                         </button>
                         @foreach($categories as $cat)
                         <button wire:click="selectCategory({{ $cat->id }})"
-                            class="px-3 py-1 rounded-full text-xs font-medium transition-colors
+                            class="px-3 py-1 rounded-full text-xs font-medium transition-colors cursor-pointer
                                 {{ $selectedCategoryId == $cat->id ? 'bg-[#ff7261] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
                             {{ $cat->name }}
                         </button>
@@ -361,7 +521,7 @@
                         @foreach($sellableItems as $item)
                         <button
                             wire:click="{{ $item['type'] === 'ingredient' ? 'addIngredientToCart(' . $item['id'] . ')' : 'addProductToCart(' . $item['id'] . ')' }}"
-                            class="flex flex-col items-center text-center p-3 rounded-xl border border-slate-200 hover:border-[#ff7261] hover:shadow-md hover:bg-orange-50/30 transition-all duration-150 group">
+                            class="flex flex-col items-center text-center p-3 rounded-xl border border-slate-200 hover:border-[#ff7261] hover:shadow-md hover:bg-orange-50/30 hover:-translate-y-0.5 transition-all duration-150 group cursor-pointer">
 
                             {{-- Image or icon --}}
                             <div class="w-14 h-14 rounded-xl overflow-hidden mb-2 flex items-center justify-center
@@ -756,11 +916,22 @@
     @endif
 
 
-    {{-- JS: listen for openWindow event dispatched by Livewire --}}
+    {{-- JS: listen for openWindow + print-receipt events dispatched by Livewire --}}
 <script>
     document.addEventListener('livewire:initialized', () => {
         Livewire.on('openWindow', ({ url }) => {
             window.open(url, '_blank');
+        });
+
+        Livewire.on('print-receipt', (event) => {
+            const saleId = Array.isArray(event) ? event[0]?.saleId : event.saleId;
+            if (!saleId) return;
+            const printWindow = window.open(
+                `/receipt/${saleId}?print=auto`,
+                'receipt_' + saleId,
+                'width=350,height=600,scrollbars=yes,resizable=yes'
+            );
+            if (printWindow) printWindow.focus();
         });
     });
 </script>

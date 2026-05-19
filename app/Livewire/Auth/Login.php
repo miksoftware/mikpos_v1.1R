@@ -68,8 +68,9 @@ class Login extends Component
             }
             
             ActivityLogService::logLogin();
-            
-            return redirect()->intended('/dashboard');
+
+            // Send the user to a page they actually have access to.
+            return redirect()->intended(Auth::user()->landingRoute());
         }
 
         RateLimiter::hit($throttleKey, 60);

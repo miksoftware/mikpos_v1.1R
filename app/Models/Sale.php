@@ -44,6 +44,7 @@ class Sale extends Model
         'global_discount_reason',
         'source',
         'mesa_id',
+        'waiter_id',
     ];
 
     protected function casts(): array
@@ -84,6 +85,15 @@ class Sale extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Mesero / mozo who took the order at the table (Mostrador flow).
+     * Distinct from user() which is the cashier that collected payment.
+     */
+    public function waiter(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'waiter_id');
     }
 
     public function items(): HasMany

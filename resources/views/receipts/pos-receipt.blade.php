@@ -522,7 +522,15 @@
 
         <!-- Seller -->
         <div class="seller-section">
+            @if($sale->mesa)
+            <p><strong>Mesa:</strong> {{ $sale->mesa->name }}@if($sale->mesa->sector) · {{ $sale->mesa->sector->name }}@endif</p>
+            @endif
+            @if($sale->waiter)
+            <p><strong>Mesero:</strong> {{ $sale->waiter->name }}</p>
+            <p><strong>Cajero:</strong> {{ $sale->user->name ?? 'N/A' }}</p>
+            @else
             <p><strong>{{ $sale->source === 'ecommerce' ? 'Origen:' : 'Atendido por:' }}</strong> {{ $sale->source === 'ecommerce' ? 'Tienda en línea' : ($sale->user->name ?? 'N/A') }}</p>
+            @endif
             @if($sale->cashReconciliation && $sale->cashReconciliation->cashRegister)
             <p><strong>Caja:</strong> {{ $sale->cashReconciliation->cashRegister->name }}</p>
             @endif

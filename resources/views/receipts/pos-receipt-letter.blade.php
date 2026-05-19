@@ -202,7 +202,15 @@
                         <strong>Tipo:</strong> Documento POS<br>
                     @endif
                     <strong>Fecha:</strong> {{ $sale->created_at->format('d/m/Y H:i') }}<br>
-                    <strong>{{ $sale->source === 'ecommerce' ? 'Origen:' : 'Vendedor:' }}</strong> {{ $sale->source === 'ecommerce' ? 'Tienda en línea' : ($sale->user->name ?? 'N/A') }}
+                    @if($sale->mesa)
+                        <strong>Mesa:</strong> {{ $sale->mesa->name }}@if($sale->mesa->sector) · {{ $sale->mesa->sector->name }}@endif<br>
+                    @endif
+                    @if($sale->waiter)
+                        <strong>Mesero:</strong> {{ $sale->waiter->name }}<br>
+                        <strong>Cajero:</strong> {{ $sale->user->name ?? 'N/A' }}
+                    @else
+                        <strong>{{ $sale->source === 'ecommerce' ? 'Origen:' : 'Vendedor:' }}</strong> {{ $sale->source === 'ecommerce' ? 'Tienda en línea' : ($sale->user->name ?? 'N/A') }}
+                    @endif
                     @if($sale->cashReconciliation && $sale->cashReconciliation->cashRegister)
                         <br><strong>Caja:</strong> {{ $sale->cashReconciliation->cashRegister->name }}
                     @endif
