@@ -8,8 +8,10 @@ use App\Models\Mesa;
 use App\Models\Sector;
 use App\Models\Cuenta;
 use App\Models\CuentaItem;
+use App\Models\CuentaItemSelectedIngredient;
 use App\Models\Product;
 use App\Models\Ingredient;
+use App\Models\IngredientGroup;
 use App\Models\Category;
 use App\Models\Sale;
 use App\Models\SaleItem;
@@ -82,6 +84,12 @@ class Mostrador extends Component
 
     // ─── Preparation stations (per-branch toggle) ─────────────────────────────
     public bool $useStations = false;
+
+    // ─── Ingredient group selection modal ──────────────────────────────────────
+    public bool $showIngredientGroupModal = false;
+    public ?int $pendingProductId = null;
+    public array $ingredientGroupsData = [];       // [{id, name, ingredients: [{id, name, stock, manage_inventory}]}]
+    public array $selectedGroupIngredients = [];    // [group_id => ingredient_id]
 
     // ─── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -212,8 +220,20 @@ class Mostrador extends Component
     private function loadCartFromCuenta(Cuenta $cuenta): void
     {
         $this->cart = [];
-        foreach ($cuenta->items()->with('preparationStation')->orderBy('id')->get() as $item) {
+        foreach ($cuenta->items()->with(['preparationStation', 'selectedIngredients.ingredient', 'selectedIngredients.ingredientGroup'])->orderBy('id')->get() as $item) {
             $ps = $item->preparationStation;
+
+            // Build selected ingredients summary
+            $selections = [];
+            foreach ($item->selectedIngredients as $sel) {
+                $selections[] = [
+                    'group_id'        => $sel->ingredient_group_id,
+                    'group_name'      => $sel->ingredientGroup?->name ?? '',
+                    'ingredient_id'   => $sel->ingredient_id,
+                    'ingredient_name' => $sel->ingredient?->name ?? '',
+                ];
+            }
+
             $this->cart[] = [
                 'cuenta_item_id'       => $item->id,
                 'type'                 => $item->ingredient_id ? 'ingredient' : 'product',
@@ -231,6 +251,7 @@ class Mostrador extends Component
                 'station_icon'         => $ps?->icon,
                 'station_color'        => $ps?->color,
                 'sent_at'              => $item->sent_at?->toDateTimeString(),
+                'selected_ingredients' => $selections,
             ];
         }
     }
@@ -239,19 +260,111 @@ class Mostrador extends Component
 
     public function addProductToCart(int $productId): void
     {
-        $product = Product::with('tax', 'ingredients')->find($productId);
+        $product = Product::with(['tax', 'ingredients', 'ingredientGroups.ingredients'])->find($productId);
         if (!$product) return;
 
+        // If the product has ingredient groups → open the selection modal
+        if ($product->ingredientGroups->count() > 0) {
+            $this->openIngredientGroupModal($productId);
+            return;
+        }
+
+        // No groups → add directly (existing behavior)
+        $this->addProductToCartDirect($productId, $product);
+    }
+
+    /**
+     * Open the ingredient-group selection modal for a product.
+     */
+    public function openIngredientGroupModal(int $productId): void
+    {
+        $product = Product::with(['ingredientGroups.ingredients'])->find($productId);
+        if (!$product) return;
+
+        $this->pendingProductId = $productId;
+        $this->ingredientGroupsData = [];
+        $this->selectedGroupIngredients = [];
+
+        foreach ($product->ingredientGroups as $group) {
+            $ingredients = [];
+            foreach ($group->ingredients()->where('is_active', true)->orderBy('name')->get() as $ing) {
+                $ingredients[] = [
+                    'id'               => $ing->id,
+                    'name'             => $ing->name,
+                    'stock'            => (float) $ing->stock,
+                    'manage_inventory' => (bool) $ing->manage_inventory,
+                ];
+            }
+            $this->ingredientGroupsData[] = [
+                'id'          => $group->id,
+                'name'        => $group->name,
+                'ingredients' => $ingredients,
+            ];
+            // Pre-select the first ingredient if available
+            if (!empty($ingredients)) {
+                $this->selectedGroupIngredients[$group->id] = $ingredients[0]['id'];
+            }
+        }
+
+        $this->showIngredientGroupModal = true;
+    }
+
+    /**
+     * Confirm ingredient selections and add the product to the cart.
+     */
+    public function confirmIngredientSelection(): void
+    {
+        if (!$this->pendingProductId) return;
+
+        $product = Product::with(['tax', 'ingredients', 'ingredientGroups', 'preparationStation'])->find($this->pendingProductId);
+        if (!$product) return;
+
+        // Validate all groups have a selection
+        foreach ($this->ingredientGroupsData as $group) {
+            if (empty($this->selectedGroupIngredients[$group['id']])) {
+                $this->dispatch('notify', message: "Selecciona una opción en \"{$group['name']}\"", type: 'error');
+                return;
+            }
+        }
+
+        // Check stock of selected ingredients
+        foreach ($this->ingredientGroupsData as $group) {
+            $selectedId = $this->selectedGroupIngredients[$group['id']];
+            $ingredient = Ingredient::find($selectedId);
+            if ($ingredient && $ingredient->manage_inventory && $ingredient->stock < 1) {
+                $this->dispatch('notify', message: "Sin stock para \"{$ingredient->name}\"", type: 'error');
+                return;
+            }
+        }
+
+        // Add the product to the cart (always as a new row since selections vary)
+        $this->addProductToCartDirect($this->pendingProductId, $product, $this->selectedGroupIngredients);
+
+        $this->closeIngredientGroupModal();
+    }
+
+    public function closeIngredientGroupModal(): void
+    {
+        $this->showIngredientGroupModal = false;
+        $this->pendingProductId = null;
+        $this->ingredientGroupsData = [];
+        $this->selectedGroupIngredients = [];
+    }
+
+    /**
+     * Internal: add a product to the cart, optionally with ingredient group selections.
+     * When $groupSelections is provided, a new cart row is always created (never merged).
+     */
+    private function addProductToCartDirect(int $productId, Product $product, array $groupSelections = []): void
+    {
         // Stock check for managed-inventory products
         if ($product->manages_inventory && $product->current_stock <= 0) {
             $this->dispatch('notify', message: "Sin stock disponible para \"{$product->name}\"", type: 'error');
             return;
         }
 
-        // Ingredient-level stock check for "compuesto" products
-        // (validated up-front so we never send a comanda we can't prepare).
+        // Ingredient-level stock check for "compuesto" products (recipe ingredients)
         if ($product->product_type === 'compuesto') {
-            // How many of this product the cart currently holds (only unsent rows).
             $currentInCart = 0.0;
             foreach ($this->cart as $row) {
                 if (!empty($row['sent_at'])) continue;
@@ -266,7 +379,7 @@ class Mostrador extends Component
                 $needed = (float) $ingredient->pivot->quantity * $neededQty;
                 if ((float) $ingredient->stock < $needed) {
                     $this->dispatch('notify',
-                        message: "Sin ingrediente \"{$ingredient->name}\" suficiente para preparar \"{$product->name}\" (faltan).",
+                        message: "Sin ingrediente \"{$ingredient->name}\" suficiente para preparar \"{$product->name}\".",
                         type: 'error'
                     );
                     return;
@@ -282,77 +395,102 @@ class Mostrador extends Component
         $basePrice = (float) $product->sale_price;
 
         if ($product->tax && $product->price_includes_tax) {
-            // Price already includes tax → extract base
             $taxRate = (float) $product->tax->percentage / 100;
             $basePrice = round($basePrice / (1 + $taxRate), 6);
         } elseif ($product->tax && !$product->price_includes_tax) {
             $taxRate = (float) $product->tax->percentage / 100;
         }
 
-        $cartKey = 'p-' . $productId;
-        $idx = $this->findCartIndex($cartKey);
+        // Products WITH group selections always get a new row (can't merge)
+        $hasGroups = !empty($groupSelections);
 
-        if ($idx !== null) {
-            // Increase quantity of existing row
-            $newQty = $this->cart[$idx]['quantity'] + 1;
+        if (!$hasGroups) {
+            $cartKey = 'p-' . $productId;
+            $idx = $this->findCartIndex($cartKey);
 
-            // Stock re-check
-            if ($product->manages_inventory && $newQty > $product->current_stock) {
-                $this->dispatch('notify', message: "Stock insuficiente para \"{$product->name}\"", type: 'error');
+            if ($idx !== null) {
+                $newQty = $this->cart[$idx]['quantity'] + 1;
+
+                if ($product->manages_inventory && $newQty > $product->current_stock) {
+                    $this->dispatch('notify', message: "Stock insuficiente para \"{$product->name}\"", type: 'error');
+                    return;
+                }
+
+                $taxAmt = round($basePrice * $taxRate * $newQty, 2);
+                $subtotal = round($basePrice * $newQty, 2);
+
+                $this->cart[$idx]['quantity']  = $newQty;
+                $this->cart[$idx]['tax_amount'] = $taxAmt;
+                $this->cart[$idx]['subtotal']  = $subtotal;
+
+                CuentaItem::where('id', $this->cart[$idx]['cuenta_item_id'])->update([
+                    'quantity'   => $newQty,
+                    'tax_amount' => $taxAmt,
+                    'subtotal'   => $subtotal,
+                ]);
                 return;
             }
-
-            $taxAmt = round($basePrice * $taxRate * $newQty, 2);
-            $subtotal = round($basePrice * $newQty, 2);
-
-            $this->cart[$idx]['quantity']  = $newQty;
-            $this->cart[$idx]['tax_amount'] = $taxAmt;
-            $this->cart[$idx]['subtotal']  = $subtotal;
-
-            CuentaItem::where('id', $this->cart[$idx]['cuenta_item_id'])->update([
-                'quantity'   => $newQty,
-                'tax_amount' => $taxAmt,
-                'subtotal'   => $subtotal,
-            ]);
-        } else {
-            $taxAmt  = round($basePrice * $taxRate, 2);
-            $subtotal = round($basePrice, 2);
-
-            $product->loadMissing('preparationStation');
-            $ps = $product->preparationStation;
-
-            $ci = CuentaItem::create([
-                'cuenta_id'              => $this->currentCuentaId,
-                'product_id'             => $productId,
-                'item_name'              => $product->name,
-                'unit_price'             => $basePrice,
-                'quantity'               => 1,
-                'tax_rate'               => round($taxRate * 100, 2),
-                'tax_amount'             => $taxAmt,
-                'subtotal'               => $subtotal,
-                'notes'                  => null,
-                'preparation_station_id' => $product->preparation_station_id,
-            ]);
-
-            $this->cart[] = [
-                'cuenta_item_id'         => $ci->id,
-                'type'                   => 'product',
-                'item_id'                => $productId,
-                'name'                   => $product->name,
-                'unit_price'             => $basePrice,
-                'base_price'             => $basePrice,
-                'quantity'               => 1.0,
-                'tax_rate'               => round($taxRate * 100, 2),
-                'tax_amount'             => $taxAmt,
-                'subtotal'               => $subtotal,
-                'notes'                  => '',
-                'preparation_station_id' => $product->preparation_station_id,
-                'station_name'           => $ps?->name,
-                'station_icon'           => $ps?->icon,
-                'station_color'          => $ps?->color,
-                'sent_at'                => null,
-            ];
         }
+
+        // New row
+        $taxAmt  = round($basePrice * $taxRate, 2);
+        $subtotal = round($basePrice, 2);
+
+        $product->loadMissing('preparationStation');
+        $ps = $product->preparationStation;
+
+        $ci = CuentaItem::create([
+            'cuenta_id'              => $this->currentCuentaId,
+            'product_id'             => $productId,
+            'item_name'              => $product->name,
+            'unit_price'             => $basePrice,
+            'quantity'               => 1,
+            'tax_rate'               => round($taxRate * 100, 2),
+            'tax_amount'             => $taxAmt,
+            'subtotal'               => $subtotal,
+            'notes'                  => null,
+            'preparation_station_id' => $product->preparation_station_id,
+        ]);
+
+        // Save selected ingredients to DB
+        $selections = [];
+        if ($hasGroups) {
+            foreach ($groupSelections as $groupId => $ingredientId) {
+                CuentaItemSelectedIngredient::create([
+                    'cuenta_item_id'      => $ci->id,
+                    'ingredient_group_id' => $groupId,
+                    'ingredient_id'       => $ingredientId,
+                ]);
+                $group = IngredientGroup::find($groupId);
+                $ingredient = Ingredient::find($ingredientId);
+                $selections[] = [
+                    'group_id'        => (int) $groupId,
+                    'group_name'      => $group?->name ?? '',
+                    'ingredient_id'   => (int) $ingredientId,
+                    'ingredient_name' => $ingredient?->name ?? '',
+                ];
+            }
+        }
+
+        $this->cart[] = [
+            'cuenta_item_id'         => $ci->id,
+            'type'                   => 'product',
+            'item_id'                => $productId,
+            'name'                   => $product->name,
+            'unit_price'             => $basePrice,
+            'base_price'             => $basePrice,
+            'quantity'               => 1.0,
+            'tax_rate'               => round($taxRate * 100, 2),
+            'tax_amount'             => $taxAmt,
+            'subtotal'               => $subtotal,
+            'notes'                  => '',
+            'preparation_station_id' => $product->preparation_station_id,
+            'station_name'           => $ps?->name,
+            'station_icon'           => $ps?->icon,
+            'station_color'          => $ps?->color,
+            'sent_at'                => null,
+            'selected_ingredients'   => $selections,
+        ];
     }
 
     public function addIngredientToCart(int $ingredientId): void
@@ -589,6 +727,18 @@ class Mostrador extends Component
 
                 foreach ($entries as $entry) {
                     $item = $entry['item'];
+
+                    // Build notes including selected ingredient choices
+                    $itemNotes = $item['notes'] ?: '';
+                    if (!empty($item['selected_ingredients'])) {
+                        $selLabels = [];
+                        foreach ($item['selected_ingredients'] as $sel) {
+                            $selLabels[] = $sel['group_name'] . ': ' . $sel['ingredient_name'];
+                        }
+                        $selText = implode(' · ', $selLabels);
+                        $itemNotes = $itemNotes ? ($itemNotes . ' | ' . $selText) : $selText;
+                    }
+
                     KitchenOrderItem::create([
                         'kitchen_order_id' => $order->id,
                         'cuenta_item_id'   => $item['cuenta_item_id'],
@@ -596,7 +746,7 @@ class Mostrador extends Component
                         'ingredient_id'    => $item['type'] === 'ingredient' ? $item['item_id'] : null,
                         'item_name'        => $item['name'],
                         'quantity'         => $item['quantity'],
-                        'notes'            => $item['notes'] ?: null,
+                        'notes'            => $itemNotes ?: null,
                         'status'           => 'pending',
                     ]);
                 }
@@ -847,12 +997,22 @@ class Mostrador extends Component
                         $product->decrement('current_stock', $item['quantity']);
                     }
 
-                    // Compuesto: deduct ingredients
+                    // Compuesto: deduct recipe ingredients
                     if ($product && $product->product_type === 'compuesto') {
                         $productWithIng = Product::with('ingredients')->find($productId);
                         foreach ($productWithIng->ingredients as $ingredient) {
                             if ($ingredient->manage_inventory) {
                                 $ingredient->decrement('stock', (float) $ingredient->pivot->quantity * (float) $item['quantity']);
+                            }
+                        }
+                    }
+
+                    // Deduct selected group ingredients (elegibles)
+                    if (!empty($item['selected_ingredients'])) {
+                        foreach ($item['selected_ingredients'] as $sel) {
+                            $selIngredient = Ingredient::find($sel['ingredient_id']);
+                            if ($selIngredient && $selIngredient->manage_inventory) {
+                                $selIngredient->decrement('stock', (float) $item['quantity']);
                             }
                         }
                     }
@@ -1290,7 +1450,7 @@ class Mostrador extends Component
             $categories = Category::where('is_active', true)->orderBy('name')->get();
 
             // Products
-            $productsQuery = Product::with(['tax', 'unit'])
+            $productsQuery = Product::with(['tax', 'unit', 'ingredientGroups'])
                 ->where('is_active', true)
                 ->where(function ($q) {
                     $q->where('manages_inventory', false)
@@ -1330,6 +1490,7 @@ class Mostrador extends Component
                     'unit'             => $product->unit?->abbreviation ?? 'UND',
                     'manages_inventory' => (bool) $product->manages_inventory,
                     'stock'            => (float) $product->current_stock,
+                    'has_groups'       => $product->ingredientGroups->count() > 0,
                 ]);
             }
 

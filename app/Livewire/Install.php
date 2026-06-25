@@ -221,73 +221,73 @@ class Install extends Component
             $this->updateStatus('Creando roles y permisos...', 40);
             Artisan::call('db:seed', ['--class' => 'RolesAndPermissionsSeeder', '--force' => true]);
 
-            $this->updateStatus('Cargando departamentos...', 50);
+            $this->updateStatus('Cargando datos geográficos...', 45);
             Artisan::call('db:seed', ['--class' => 'DepartmentSeeder', '--force' => true]);
-
-            $this->updateStatus('Cargando municipios...', 60);
             Artisan::call('db:seed', ['--class' => 'MunicipalitySeeder', '--force' => true]);
 
-            $this->updateStatus('Configurando métodos de pago...', 70);
+            $this->updateStatus('Configurando métodos de pago y tributarios...', 50);
             Artisan::call('db:seed', ['--class' => 'PaymentMethodsSeeder', '--force' => true]);
-
-            $this->updateStatus('Configurando documentos tributarios...', 72);
             Artisan::call('db:seed', ['--class' => 'TaxDocumentsSeeder', '--force' => true]);
 
-            $this->updateStatus('Configurando permisos de catálogo...', 74);
+            $this->updateStatus('Configurando catálogos (clientes, proveedores, productos)...', 55);
             Artisan::call('db:seed', ['--class' => 'ProductCatalogPermissionsSeeder', '--force' => true]);
-
-            $this->updateStatus('Configurando permisos de clientes...', 75);
             Artisan::call('db:seed', ['--class' => 'CustomerModuleSeeder', '--force' => true]);
-
-            $this->updateStatus('Configurando permisos de proveedores...', 76);
             Artisan::call('db:seed', ['--class' => 'SupplierModuleSeeder', '--force' => true]);
-
-            $this->updateStatus('Configurando permisos de productos...', 77);
             Artisan::call('db:seed', ['--class' => 'ProductsModuleSeeder', '--force' => true]);
-
-            $this->updateStatus('Configurando permisos de combos...', 78);
             Artisan::call('db:seed', ['--class' => 'CombosModuleSeeder', '--force' => true]);
 
-            $this->updateStatus('Configurando permisos de compras...', 79);
-            Artisan::call('db:seed', ['--class' => 'PurchasesModuleSeeder', '--force' => true]);
+            $this->updateStatus('Configurando operaciones de restaurante...', 60);
+            Artisan::call('db:seed', ['--class' => 'MesasPermissionsSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'MostradorPermissionsSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'PreparationStationsPermissionsSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'KitchenOrdersModuleSeeder', '--force' => true]);
 
-            $this->updateStatus('Configurando permisos de inventario...', 80);
+            $this->updateStatus('Configurando inventario y compras...', 65);
+            Artisan::call('db:seed', ['--class' => 'PurchasesModuleSeeder', '--force' => true]);
             Artisan::call('db:seed', ['--class' => 'InventoryAdjustmentsModuleSeeder', '--force' => true]);
             Artisan::call('db:seed', ['--class' => 'InventoryTransfersModuleSeeder', '--force' => true]);
 
-            $this->updateStatus('Configurando permisos de cajas...', 82);
+            $this->updateStatus('Configurando cajas y finanzas...', 70);
             Artisan::call('db:seed', ['--class' => 'CashRegistersModuleSeeder', '--force' => true]);
             Artisan::call('db:seed', ['--class' => 'CashReconciliationsModuleSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'CashReconciliationEditPermissionSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'PosCashDenominationsPermissionSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'ExpensesModuleSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'PayrollModuleSeeder', '--force' => true]);
 
-            $this->updateStatus('Configurando permisos de ventas...', 84);
+            $this->updateStatus('Configurando ventas, servicios y créditos...', 75);
             Artisan::call('db:seed', ['--class' => 'SalesModuleSeeder', '--force' => true]);
-
-            $this->updateStatus('Configurando permisos de facturación...', 85);
-            Artisan::call('db:seed', ['--class' => 'BillingSettingsModuleSeeder', '--force' => true]);
-
-            $this->updateStatus('Configurando documentos del sistema...', 87);
-            Artisan::call('db:seed', ['--class' => 'SystemDocumentsSeeder', '--force' => true]);
-
-            $this->updateStatus('Configurando permisos de servicios...', 88);
+            Artisan::call('db:seed', ['--class' => 'SalesViewOwnPermissionSeeder', '--force' => true]);
             Artisan::call('db:seed', ['--class' => 'ServicesModuleSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'CreditsModuleSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'DiscountsModuleSeeder', '--force' => true]);
 
-            $this->updateStatus('Configurando permisos de reportes...', 89);
+            $this->updateStatus('Configurando facturación y documentos...', 80);
+            Artisan::call('db:seed', ['--class' => 'BillingSettingsModuleSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'SystemDocumentsSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'RefundSystemDocumentSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'PrintFormatsModuleSeeder', '--force' => true]);
+
+            $this->updateStatus('Configurando E-commerce...', 82);
+            Artisan::call('db:seed', ['--class' => 'EcommerceModuleSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'EcommerceOrdersModuleSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'EcommerceSystemDocumentSeeder', '--force' => true]);
+
+            $this->updateStatus('Configurando reportes avanzados...', 85);
             Artisan::call('db:seed', ['--class' => 'ReportsModuleSeeder', '--force' => true]);
             Artisan::call('db:seed', ['--class' => 'CommissionsReportPermissionSeeder', '--force' => true]);
             Artisan::call('db:seed', ['--class' => 'KardexReportPermissionSeeder', '--force' => true]);
             Artisan::call('db:seed', ['--class' => 'SalesBookReportPermissionSeeder', '--force' => true]);
-
-            $this->updateStatus('Configurando unidades de peso...', 90);
-            Artisan::call('db:seed', ['--class' => 'WeightUnitsSeeder', '--force' => true]);
-
-            $this->updateStatus('Configurando reporte P&G...', 91);
             Artisan::call('db:seed', ['--class' => 'ProfitLossReportPermissionSeeder', '--force' => true]);
-
-            $this->updateStatus('Configurando permisos de créditos...', 92);
-            Artisan::call('db:seed', ['--class' => 'CreditsModuleSeeder', '--force' => true]);
-
-            $this->updateStatus('Configurando reporte de créditos...', 93);
             Artisan::call('db:seed', ['--class' => 'CreditsReportPermissionSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'CashReportPermissionSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'PurchasesReportPermissionSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'PaymentMethodsReportPermissionSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'CustomerSalesReportPermissionSeeder', '--force' => true]);
+
+            $this->updateStatus('Configuraciones adicionales del sistema...', 88);
+            Artisan::call('db:seed', ['--class' => 'WeightUnitsSeeder', '--force' => true]);
+            Artisan::call('db:seed', ['--class' => 'MigrationModuleSeeder', '--force' => true]);
 
             // Mark all seeders as executed so db:seed-pending won't re-run them
             Artisan::call('db:seed-mark-executed', ['--all' => true]);

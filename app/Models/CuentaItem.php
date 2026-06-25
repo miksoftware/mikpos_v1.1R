@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CuentaItem extends Model
 {
@@ -53,5 +54,10 @@ class CuentaItem extends Model
     public function preparationStation(): BelongsTo
     {
         return $this->belongsTo(PreparationStation::class);
+    }
+
+    public function selectedIngredients(): HasMany
+    {
+        return $this->hasMany(CuentaItemSelectedIngredient::class);
     }
 }

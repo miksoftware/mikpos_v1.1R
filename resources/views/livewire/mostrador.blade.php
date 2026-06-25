@@ -374,6 +374,16 @@
                             @if(!empty($item['notes']))
                             <p class="text-[10px] text-yellow-700 mt-0.5 italic truncate">📝 {{ $item['notes'] }}</p>
                             @endif
+                            @if(!empty($item['selected_ingredients']))
+                            <div class="flex flex-wrap gap-1 mt-1">
+                                @foreach($item['selected_ingredients'] as $sel)
+                                <span class="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+                                    <svg class="w-2.5 h-2.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                    {{ $sel['ingredient_name'] }}
+                                </span>
+                                @endforeach
+                            </div>
+                            @endif
                         </div>
 
                         {{-- Qty controls --}}
@@ -468,6 +478,7 @@
                     @endif
 
                     {{-- CTA: Cobrar --}}
+                    @if(!$useStations || !$this->hasUnsentItems)
                     <button wire:click="openPaymentModal"
                         @class(['w-full px-4 py-3 text-sm font-bold text-white rounded-xl transition-all inline-flex items-center justify-center gap-2',
                             'bg-gradient-to-r from-[#ff7261] to-[#a855f7] hover:shadow-xl hover:shadow-purple-500/30 hover:-translate-y-0.5 cursor-pointer' => count($cart) > 0,
@@ -476,6 +487,7 @@
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
                         Cobrar ${{ number_format($total, 2) }}
                     </button>
+                    @endif
                 </div>
             </div>
             {{-- END LEFT PANEL --}}
@@ -544,6 +556,11 @@
                             {{-- Type badge --}}
                             @if($item['type'] === 'ingredient')
                             <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 mb-1">Ingrediente</span>
+                            @elseif(!empty($item['has_groups']))
+                            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 mb-1 flex items-center gap-0.5">
+                                <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+                                Personalizable
+                            </span>
                             @endif
 
                             {{-- Price --}}
@@ -907,6 +924,105 @@
                         <button wire:click="processSplitPayment"
                             class="px-4 py-2 text-sm font-bold text-white rounded-xl bg-gradient-to-r from-[#ff7261] to-[#a855f7] hover:opacity-90 transition-opacity">
                             Cobrar ${{ number_format($splitTotal, 2) }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    @endif
+
+
+    {{-- ──────────────────────────────────────────────────────────────────────────── --}}
+    {{-- MODAL: Selección de Ingredientes por Grupo                                --}}
+    {{-- ──────────────────────────────────────────────────────────────────────────── --}}
+    @if($showIngredientGroupModal)
+    <div class="relative z-[100]">
+        <div class="fixed inset-0 bg-slate-900/75 backdrop-blur-sm z-[100]" wire:click="closeIngredientGroupModal"></div>
+        <div class="fixed inset-0 z-[101] overflow-y-auto">
+            <div class="flex min-h-full items-center justify-center p-4">
+                <div class="relative w-full max-w-lg bg-white rounded-2xl shadow-xl">
+
+                    {{-- Header --}}
+                    <div class="px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-purple-50 to-white rounded-t-2xl">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/>
+                                </svg>
+                            </div>
+                            <div>
+                                @php
+                                    $pendingProduct = $pendingProductId ? \App\Models\Product::find($pendingProductId) : null;
+                                @endphp
+                                <h3 class="text-lg font-bold text-slate-900">Personalizar pedido</h3>
+                                <p class="text-sm text-slate-500">{{ $pendingProduct?->name ?? 'Producto' }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- Groups --}}
+                    <div class="px-6 py-4 space-y-5 max-h-[60vh] overflow-y-auto">
+                        @foreach($ingredientGroupsData as $group)
+                        <div>
+                            <label class="block text-sm font-bold text-slate-700 mb-2">
+                                <span class="inline-flex items-center gap-1.5">
+                                    <span class="w-5 h-5 rounded-md bg-purple-100 text-purple-600 flex items-center justify-center text-[10px] font-black">{{ $loop->iteration }}</span>
+                                    {{ $group['name'] }}
+                                </span>
+                            </label>
+                            <div class="grid grid-cols-2 gap-2">
+                                @foreach($group['ingredients'] as $ing)
+                                @php
+                                    $isSelected = isset($selectedGroupIngredients[$group['id']]) && $selectedGroupIngredients[$group['id']] == $ing['id'];
+                                    $noStock = $ing['manage_inventory'] && $ing['stock'] < 1;
+                                @endphp
+                                <button
+                                    wire:click="$set('selectedGroupIngredients.{{ $group['id'] }}', {{ $ing['id'] }})"
+                                    @disabled($noStock)
+                                    @class([
+                                        'relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left transition-all duration-150 cursor-pointer',
+                                        'border-purple-500 bg-purple-50 ring-2 ring-purple-500/30 shadow-md' => $isSelected && !$noStock,
+                                        'border-slate-200 hover:border-purple-300 hover:bg-purple-50/30' => !$isSelected && !$noStock,
+                                        'border-slate-100 bg-slate-50 opacity-50 cursor-not-allowed' => $noStock,
+                                    ])>
+                                    {{-- Selection indicator --}}
+                                    <div @class([
+                                        'w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors',
+                                        'border-purple-500 bg-purple-500' => $isSelected,
+                                        'border-slate-300' => !$isSelected,
+                                    ])>
+                                        @if($isSelected)
+                                        <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
+                                        </svg>
+                                        @endif
+                                    </div>
+                                    <div class="min-w-0">
+                                        <p class="text-sm font-medium text-slate-800 truncate">{{ $ing['name'] }}</p>
+                                        @if($noStock)
+                                        <p class="text-[10px] text-red-500 font-semibold">Agotado</p>
+                                        @endif
+                                    </div>
+                                </button>
+                                @endforeach
+                            </div>
+                        </div>
+                        @endforeach
+                    </div>
+
+                    {{-- Footer --}}
+                    <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 rounded-b-2xl flex justify-end gap-3">
+                        <button wire:click="closeIngredientGroupModal"
+                            class="px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer">
+                            Cancelar
+                        </button>
+                        <button wire:click="confirmIngredientSelection"
+                            class="px-5 py-2.5 text-sm font-bold text-white rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 hover:shadow-lg hover:shadow-purple-500/30 transition-all cursor-pointer inline-flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+                            </svg>
+                            Agregar al pedido
                         </button>
                     </div>
                 </div>
