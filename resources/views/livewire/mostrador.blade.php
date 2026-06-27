@@ -319,7 +319,7 @@
                     <div class="max-h-40 overflow-y-auto divide-y divide-emerald-100/60">
                         @foreach($this->sentItems as $entry)
                         @php $item = $entry['item']; @endphp
-                        <div class="flex items-center gap-2 px-4 py-1.5 text-xs">
+                        <div class="flex items-center gap-2 px-4 py-1.5 text-xs group/sent">
                             <span class="inline-flex items-center justify-center w-5 h-5 rounded bg-emerald-100 text-emerald-700 font-bold text-[10px] flex-shrink-0">
                                 {{ rtrim(rtrim(number_format((float)$item['quantity'], 3), '0'), '.') }}
                             </span>
@@ -333,6 +333,12 @@
                             <span class="text-slate-600 font-semibold w-14 text-right flex-shrink-0">
                                 ${{ number_format($item['subtotal'] + $item['tax_amount'], 2) }}
                             </span>
+                            {{-- Remove sent item button --}}
+                            <button wire:click="openRemoveSentModal({{ $entry['idx'] }})"
+                                class="flex-shrink-0 opacity-0 group-hover/sent:opacity-100 p-1 rounded text-red-400 hover:text-red-600 hover:bg-red-50 transition-all cursor-pointer"
+                                title="Quitar ítem ya pedido">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                            </button>
                         </div>
                         @endforeach
                     </div>
@@ -1031,6 +1037,103 @@
     </div>
     @endif
 
+
+    {{-- ──────────────────────────────────────────────────────────────────────── --}}
+    {{-- MODAL: Quitar ítem ya pedido (con reversión de stock)                   --}}
+    {{-- ──────────────────────────────────────────────────────────────────────── --}}
+    @if($showRemoveSentModal && $removeSentIdx !== null && isset($cart[$removeSentIdx]))
+    @php $removingItem = $cart[$removeSentIdx]; @endphp
+    <div class="relative z-[100]" role="dialog" aria-modal="true">
+        <div class="fixed inset-0 bg-slate-900/75 backdrop-blur-sm z-[100]" wire:click="closeRemoveSentModal"></div>
+        <div class="fixed inset-0 z-[101] overflow-y-auto">
+            <div class="flex min-h-full items-center justify-center p-4">
+                <div class="relative w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden">
+
+                    {{-- Red warning header --}}
+                    <div class="bg-gradient-to-r from-red-500 to-rose-600 px-6 py-5">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 class="text-base font-bold text-white">Quitar ítem ya pedido</h3>
+                                <p class="text-red-100 text-xs mt-0.5">Esta acción cancela la comanda en cocina y devuelve el stock</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="px-6 py-5 space-y-4">
+
+                        {{-- Item summary --}}
+                        <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center flex-shrink-0">
+                                <span class="text-white font-bold text-sm">
+                                    {{ rtrim(rtrim(number_format((float)$removingItem['quantity'], 3), '0'), '.') }}
+                                </span>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="font-semibold text-slate-900 truncate">{{ $removingItem['name'] }}</p>
+                                <div class="flex items-center gap-1.5 mt-0.5">
+                                    @if(!empty($removingItem['station_name']))
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded-full font-semibold text-white"
+                                        style="background: {{ $removingItem['station_color'] ?? '#6b7280' }};">
+                                        {{ $removingItem['station_icon'] ?? '' }} {{ $removingItem['station_name'] }}
+                                    </span>
+                                    @endif
+                                    <span class="text-xs font-bold text-red-600">
+                                        −${{ number_format($removingItem['subtotal'] + $removingItem['tax_amount'], 2) }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {{-- What will happen --}}
+                        <div class="space-y-2 text-sm">
+                            <div class="flex items-start gap-2">
+                                <svg class="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                                <span class="text-slate-600">La comanda en cocina será <strong>cancelada</strong></span>
+                            </div>
+                            <div class="flex items-start gap-2">
+                                <svg class="w-4 h-4 text-emerald-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>
+                                <span class="text-slate-600">El stock será <strong>devuelto al inventario</strong></span>
+                            </div>
+                            <div class="flex items-start gap-2">
+                                <svg class="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l-4-4m0 0l4-4m-4 4h11a4 4 0 010 8h-1"/></svg>
+                                <span class="text-slate-600">El ítem se <strong>eliminará de la cuenta</strong> y del total</span>
+                            </div>
+                        </div>
+
+                        {{-- Optional reason --}}
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">
+                                Motivo <span class="text-slate-400 font-normal">(opcional)</span>
+                            </label>
+                            <input wire:model="removeSentReason" type="text"
+                                placeholder="Ej: el cliente cambió de opinión, error de pedido…"
+                                class="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-400/50 focus:border-red-400 transition-colors"
+                                maxlength="120">
+                        </div>
+                    </div>
+
+                    {{-- Footer --}}
+                    <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
+                        <button wire:click="closeRemoveSentModal"
+                            class="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer">
+                            Cancelar
+                        </button>
+                        <button wire:click="removeSentItem"
+                            class="px-4 py-2 text-sm font-bold text-white bg-gradient-to-r from-red-500 to-rose-600 rounded-xl hover:from-red-600 hover:to-rose-700 transition-all shadow-sm shadow-red-500/30 cursor-pointer inline-flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                            Quitar ítem
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    @endif
 
     {{-- JS: listen for openWindow + print-receipt events dispatched by Livewire --}}
 <script>

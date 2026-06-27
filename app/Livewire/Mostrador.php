@@ -653,6 +653,156 @@ class Mostrador extends Component
         ]);
     }
 
+    // ─── Cancel & remove a previously-sent item ────────────────────────────────
+
+    public bool $showRemoveSentModal = false;
+    public ?int $removeSentIdx = null;
+    public string $removeSentReason = '';
+
+    public function openRemoveSentModal(int $idx): void
+    {
+        if (!isset($this->cart[$idx]) || empty($this->cart[$idx]['sent_at'])) return;
+        $this->removeSentIdx    = $idx;
+        $this->removeSentReason = '';
+        $this->showRemoveSentModal = true;
+    }
+
+    public function closeRemoveSentModal(): void
+    {
+        $this->showRemoveSentModal = false;
+        $this->removeSentIdx    = null;
+        $this->removeSentReason = '';
+    }
+
+    /**
+     * Remove an already-sent item from the active cuenta:
+     * - Cancels the linked KitchenOrderItem (and KitchenOrder if now empty).
+     * - Returns stock to inventory (product + recipe ingredients if compuesto).
+     * - Removes the CuentaItem row and updates the local cart.
+     * - Frees the mesa if the cuenta is now empty.
+     */
+    public function removeSentItem(): void
+    {
+        $idx = $this->removeSentIdx;
+        if ($idx === null || !isset($this->cart[$idx])) {
+            $this->closeRemoveSentModal();
+            return;
+        }
+
+        $item = $this->cart[$idx];
+
+        if (empty($item['sent_at'])) {
+            $this->closeRemoveSentModal();
+            return;
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $qty          = (float) $item['quantity'];
+            $cuentaItemId = $item['cuenta_item_id'];
+
+            // ── 1) Cancel KitchenOrderItem(s) linked to this cuenta_item ──────
+            $kitchenItems = KitchenOrderItem::where('cuenta_item_id', $cuentaItemId)
+                ->whereIn('status', ['pending', 'preparing', 'ready'])
+                ->get();
+
+            foreach ($kitchenItems as $ki) {
+                $ki->update(['status' => 'cancelled']);
+
+                // If the parent KitchenOrder has no more active items → cancel it too
+                $activeCount = KitchenOrderItem::where('kitchen_order_id', $ki->kitchen_order_id)
+                    ->where('status', '!=', 'cancelled')
+                    ->count();
+                if ($activeCount === 0) {
+                    KitchenOrder::where('id', $ki->kitchen_order_id)
+                        ->whereIn('status', ['pending', 'preparing', 'ready'])
+                        ->update(['status' => 'cancelled']);
+                }
+            }
+
+            // ── 2) Return stock to inventory ──────────────────────────────────
+            if ($item['type'] === 'product') {
+                $product = Product::with('ingredients')->find($item['item_id']);
+
+                // 2a) Product manages its own stock directly
+                if ($product && $product->manages_inventory) {
+                    $product->increment('current_stock', $qty);
+                    InventoryMovement::createMovement(
+                        'adjustment',
+                        $product,
+                        'in',
+                        $qty,
+                        (float) $item['base_price'],
+                        "Quitar ítem pedido – Mesa: {$this->selectedMesaName}" .
+                            ($this->removeSentReason ? " – {$this->removeSentReason}" : ''),
+                        null,
+                        $this->branchId
+                    );
+                }
+
+                // 2b) Compuesto: return FIXED recipe ingredients (product_ingredients pivot table)
+                //     e.g. Michelada Clásica always uses 1 cerveza + 0.5 limón → restore those
+                if ($product && $product->product_type === 'compuesto') {
+                    foreach ($product->ingredients as $ingredient) {
+                        if ($ingredient->manage_inventory) {
+                            $toReturn = (float) $ingredient->pivot->quantity * $qty;
+                            $ingredient->increment('stock', $toReturn);
+                        }
+                    }
+
+                    // 2c) Compuesto: return SELECTED group ingredients (elegibles)
+                    //     e.g. the customer chose "Chamoy" from the "Borde" group →
+                    //     restore those ingredients stored in selected_ingredients on the cart row
+                    //     and in the cuenta_item_selected_ingredients table.
+                    if (!empty($item['selected_ingredients'])) {
+                        foreach ($item['selected_ingredients'] as $sel) {
+                            $selIngredient = Ingredient::find($sel['ingredient_id']);
+                            if ($selIngredient && $selIngredient->manage_inventory) {
+                                // Each selection consumes 1 unit per item ordered
+                                $selIngredient->increment('stock', $qty);
+                            }
+                        }
+                    }
+                }
+            } elseif ($item['type'] === 'ingredient') {
+                // 2d) Ingredient sold as a standalone item
+                $ingredient = Ingredient::find($item['item_id']);
+                if ($ingredient && $ingredient->manage_inventory) {
+                    $ingredient->increment('stock', $qty);
+                }
+            }
+
+            // ── 3) Delete the CuentaItem ──────────────────────────────────────
+            CuentaItem::where('id', $cuentaItemId)->delete();
+
+            // ── 4) Remove from local cart ─────────────────────────────────────
+            array_splice($this->cart, $idx, 1);
+
+            // ── 5) Free mesa if cuenta is now empty ───────────────────────────
+            if ($this->currentCuentaId) {
+                $remaining = CuentaItem::where('cuenta_id', $this->currentCuentaId)->count();
+                if ($remaining === 0) {
+                    Cuenta::where('id', $this->currentCuentaId)->update(['status' => 'cancelada']);
+                    Mesa::where('id', $this->selectedMesaId)->update(['status' => 'libre']);
+                    DB::commit();
+                    $this->closeRemoveSentModal();
+                    $this->dispatch('notify', message: 'Ítem quitado. Cuenta vacía — mesa liberada.', type: 'success');
+                    $this->backToMesas();
+                    return;
+                }
+            }
+
+            DB::commit();
+            $this->closeRemoveSentModal();
+            $this->dispatch('notify', message: 'Ítem quitado y stock devuelto.', type: 'success');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $this->closeRemoveSentModal();
+            $this->dispatch('notify', message: 'Error al quitar el ítem: ' . $e->getMessage(), type: 'error');
+        }
+    }
+
     public function removeItem(int $idx): void
     {
         if (!isset($this->cart[$idx])) return;
@@ -770,6 +920,9 @@ class Mostrador extends Component
                     : "Pedido realizado — {$kitchenOrdersQty} comandas enviadas")
                 : 'Pedido confirmado';
             $this->dispatch('notify', message: $msg, type: 'success');
+
+            // Go back to the table grid so staff can attend the next table immediately.
+            $this->backToMesas();
         } catch (\Exception $e) {
             DB::rollBack();
             $this->dispatch('notify', message: 'Error al hacer pedido: ' . $e->getMessage(), type: 'error');
