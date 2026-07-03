@@ -570,7 +570,11 @@
                             @endif
 
                             {{-- Price --}}
-                            <p class="text-sm font-bold text-[#ff7261]">${{ number_format($item['price'], 2) }}</p>
+                            @if(!empty($item['has_groups']))
+                                <p class="text-sm font-bold text-slate-400">Sin precio</p>
+                            @else
+                                <p class="text-sm font-bold text-[#ff7261]">${{ number_format($item['price'], 2) }}</p>
+                            @endif
 
                             {{-- Stock badge --}}
                             @if($item['manages_inventory'] && $item['stock'] !== null && $item['stock'] <= 5)
@@ -971,11 +975,14 @@
                     <div class="px-6 py-4 space-y-5 max-h-[60vh] overflow-y-auto">
                         @foreach($ingredientGroupsData as $group)
                         <div>
-                            <label class="block text-sm font-bold text-slate-700 mb-2">
+                            <label class="flex items-center justify-between text-sm font-bold text-slate-700 mb-2">
                                 <span class="inline-flex items-center gap-1.5">
                                     <span class="w-5 h-5 rounded-md bg-purple-100 text-purple-600 flex items-center justify-center text-[10px] font-black">{{ $loop->iteration }}</span>
                                     {{ $group['name'] }}
                                 </span>
+                                @if(isset($group['price']) && $group['price'] !== null)
+                                    <span class="text-sm font-black text-[#ff7261]">${{ number_format($group['price'], 2) }}</span>
+                                @endif
                             </label>
                             <div class="grid grid-cols-2 gap-2">
                                 @foreach($group['ingredients'] as $ing)
@@ -984,7 +991,7 @@
                                     $noStock = $ing['manage_inventory'] && $ing['stock'] < 1;
                                 @endphp
                                 <button
-                                    wire:click="$set('selectedGroupIngredients.{{ $group['id'] }}', {{ $ing['id'] }})"
+                                    wire:click="selectSingleGroupIngredient({{ $group['id'] }}, {{ $ing['id'] }})"
                                     @disabled($noStock)
                                     @class([
                                         'relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-left transition-all duration-150 cursor-pointer',

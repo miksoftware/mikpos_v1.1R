@@ -298,10 +298,11 @@ class Mostrador extends Component
             $this->ingredientGroupsData[] = [
                 'id'          => $group->id,
                 'name'        => $group->name,
+                'price'       => $group->pivot->price,
                 'ingredients' => $ingredients,
             ];
-            // Pre-select the first ingredient if available
-            if (!empty($ingredients)) {
+            // Pre-select the first ingredient if available, and ONLY for the first group
+            if (empty($this->selectedGroupIngredients) && !empty($ingredients)) {
                 $this->selectedGroupIngredients[$group->id] = $ingredients[0]['id'];
             }
         }
@@ -309,6 +310,10 @@ class Mostrador extends Component
         $this->showIngredientGroupModal = true;
     }
 
+    public function selectSingleGroupIngredient(int $groupId, int $ingredientId): void
+    {
+        $this->selectedGroupIngredients = [$groupId => $ingredientId];
+    }
     /**
      * Confirm ingredient selections and add the product to the cart.
      */
@@ -319,17 +324,14 @@ class Mostrador extends Component
         $product = Product::with(['tax', 'ingredients', 'ingredientGroups', 'preparationStation'])->find($this->pendingProductId);
         if (!$product) return;
 
-        // Validate all groups have a selection
-        foreach ($this->ingredientGroupsData as $group) {
-            if (empty($this->selectedGroupIngredients[$group['id']])) {
-                $this->dispatch('notify', message: "Selecciona una opción en \"{$group['name']}\"", type: 'error');
-                return;
-            }
+        // Validate exactly one selection overall
+        if (count($this->selectedGroupIngredients) !== 1) {
+            $this->dispatch('notify', message: "Debes seleccionar exactamente una opción de todos los grupos.", type: 'error');
+            return;
         }
 
-        // Check stock of selected ingredients
-        foreach ($this->ingredientGroupsData as $group) {
-            $selectedId = $this->selectedGroupIngredients[$group['id']];
+        // Check stock of selected ingredient
+        foreach ($this->selectedGroupIngredients as $groupId => $selectedId) {
             $ingredient = Ingredient::find($selectedId);
             if ($ingredient && $ingredient->manage_inventory && $ingredient->stock < 1) {
                 $this->dispatch('notify', message: "Sin stock para \"{$ingredient->name}\"", type: 'error');
@@ -403,6 +405,32 @@ class Mostrador extends Component
 
         // Products WITH group selections always get a new row (can't merge)
         $hasGroups = !empty($groupSelections);
+
+        // Override base price with the price defined for the selected ingredient groups
+        if ($hasGroups) {
+            $groupPriceTotal = 0;
+            $hasGroupPrice = false;
+            
+            foreach ($groupSelections as $groupId => $ingredientId) {
+                $pivot = \Illuminate\Support\Facades\DB::table('product_ingredient_groups')
+                    ->where('product_id', $productId)
+                    ->where('ingredient_group_id', $groupId)
+                    ->first();
+                    
+                if ($pivot && $pivot->price !== null) {
+                    $hasGroupPrice = true;
+                    $groupPriceTotal += (float) $pivot->price;
+                }
+            }
+            
+            if ($hasGroupPrice) {
+                $basePrice = $groupPriceTotal;
+                // If product price includes tax, recalculate base price from the total group price
+                if ($product->tax && $product->price_includes_tax) {
+                    $basePrice = round($basePrice / (1 + $taxRate), 6);
+                }
+            }
+        }
 
         if (!$hasGroups) {
             $cartKey = 'p-' . $productId;

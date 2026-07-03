@@ -231,7 +231,21 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach($sale->items->where('is_unavailable', false)->values() as $index => $item)
+                @php
+                    $aggregatedItems = [];
+                    foreach($sale->items->where('is_unavailable', false) as $item) {
+                        $key = $item->product_name . '_' . $item->unit_price;
+                        if (!isset($aggregatedItems[$key])) {
+                            $aggregatedItems[$key] = clone $item;
+                        } else {
+                            $aggregatedItems[$key]->quantity += $item->quantity;
+                            $aggregatedItems[$key]->total += $item->total;
+                            $aggregatedItems[$key]->discount_amount += $item->discount_amount;
+                        }
+                    }
+                    $aggregatedItems = array_values($aggregatedItems);
+                @endphp
+                @foreach($aggregatedItems as $index => $item)
                 <tr>
                     <td class="text-center">{{ $index + 1 }}</td>
                     <td>

@@ -139,6 +139,7 @@ class Product extends Model
     public function ingredientGroups(): BelongsToMany
     {
         return $this->belongsToMany(IngredientGroup::class, 'product_ingredient_groups')
+            ->withPivot('price')
             ->withTimestamps();
     }
 

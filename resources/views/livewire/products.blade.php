@@ -451,6 +451,7 @@
     <div class="relative z-[100]" x-data="{
         purchasePrice: @entangle('purchase_price'),
         salePrice: @entangle('sale_price'),
+        productGroups: @entangle('productGroups'),
         get margin() {
             if (!this.purchasePrice || this.purchasePrice <= 0) return null;
             return ((this.salePrice - this.purchasePrice) / this.purchasePrice * 100).toFixed(1);
@@ -622,22 +623,32 @@
 
                         {{-- Elegibles (grupos de ingredientes opcionales) --}}
                         @if($activeIngredientGroups->isNotEmpty())
-                        <div x-data="{ selected: $wire.entangle('productGroups') }">
+                        <div>
                             <div class="border border-amber-200 rounded-xl p-4 bg-amber-50/40">
                                 <h4 class="text-sm font-semibold text-slate-700 mb-1 flex items-center gap-2">
                                     <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                                     Grupos Elegibles
-                                    <span class="ml-auto text-xs font-normal text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full" x-text="selected.length + ' seleccionado(s)'"></span>
+                                    <span class="ml-auto text-xs font-normal text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full" x-text="productGroups.length + ' seleccionado(s)'"></span>
                                 </h4>
                                 <p class="text-xs text-slate-500 mb-3">Grupos de opciones que el cliente puede elegir al ordenar</p>
                                 <div class="grid grid-cols-2 gap-2">
                                     @foreach($activeIngredientGroups as $group)
-                                    <label class="flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all"
-                                           :class="selected.includes('{{ $group->id }}') ? 'border-amber-400 bg-amber-50' : 'border-slate-200 hover:border-slate-300 bg-white'">
-                                        <input type="checkbox" value="{{ $group->id }}" x-model="selected"
-                                               class="w-4 h-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400">
-                                        <span class="text-sm text-slate-700">{{ $group->name }}</span>
-                                    </label>
+                                    <div class="flex flex-col gap-1 border border-slate-200 rounded-lg p-2 transition-all bg-white"
+                                         :class="productGroups.includes('{{ $group->id }}') ? 'border-amber-400 bg-amber-50' : 'hover:border-slate-300'">
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="checkbox" value="{{ $group->id }}" x-model="productGroups"
+                                                   class="w-4 h-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400">
+                                            <span class="text-sm font-medium text-slate-700">{{ $group->name }}</span>
+                                        </label>
+                                        <div x-show="productGroups.includes('{{ $group->id }}')" x-collapse>
+                                            <div class="mt-2 relative">
+                                                <span class="absolute inset-y-0 left-0 pl-2 flex items-center text-slate-500 text-xs">$</span>
+                                                <input type="number" step="0.01" min="0" wire:model="productGroupPrices.{{ $group->id }}" 
+                                                       class="w-full text-xs pl-6 pr-2 py-1.5 border border-amber-200 rounded-md focus:ring-1 focus:ring-amber-400 focus:border-amber-400 bg-white" 
+                                                       placeholder="Precio final (opcional)">
+                                            </div>
+                                        </div>
+                                    </div>
                                     @endforeach
                                 </div>
                             </div>
@@ -830,7 +841,7 @@
                                     </div>
                                     @error('purchase_price')<span class="text-red-500 text-sm">{{ $message }}</span>@enderror
                                 </div>
-                                <div>
+                                <div x-show="productGroups.length === 0">
                                     <label class="block text-sm font-medium text-slate-700 mb-1">Precio Venta *</label>
                                     <div class="relative">
                                         <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">$</span>

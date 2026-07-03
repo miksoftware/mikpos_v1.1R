@@ -425,7 +425,20 @@
                 <span>Producto</span>
                 <span>Total</span>
             </div>
-            @foreach($sale->items->where('is_unavailable', false) as $item)
+            @php
+                $aggregatedItems = [];
+                foreach($sale->items->where('is_unavailable', false) as $item) {
+                    $key = $item->product_name . '_' . $item->unit_price;
+                    if (!isset($aggregatedItems[$key])) {
+                        $aggregatedItems[$key] = clone $item;
+                    } else {
+                        $aggregatedItems[$key]->quantity += $item->quantity;
+                        $aggregatedItems[$key]->total += $item->total;
+                        $aggregatedItems[$key]->discount_amount += $item->discount_amount;
+                    }
+                }
+            @endphp
+            @foreach($aggregatedItems as $item)
             <div class="item">
                 <div class="item-name">{{ $item->product_name }}</div>
                 @php

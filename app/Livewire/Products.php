@@ -97,6 +97,7 @@ class Products extends Component
     public ?int $preparationStationId = null;
     public array $productIngredients = []; // [['ingredient_id' => X, 'quantity' => Y], ...]
     public array $productGroups = []; // array of ingredient_group IDs (as strings)
+    public array $productGroupPrices = []; // array of prices [groupId => price]
 
     // Form data for child product
     public ?int $childId = null;
@@ -395,7 +396,14 @@ class Products extends Component
             'ingredient_id' => (string) $i->id,
             'quantity'      => (string) $i->pivot->quantity,
         ])->toArray();
-        $this->productGroups = $item->ingredientGroups->pluck('id')->map(fn($id) => (string) $id)->toArray();
+        $this->productGroups = [];
+        $this->productGroupPrices = [];
+        foreach ($item->ingredientGroups as $group) {
+            $this->productGroups[] = (string) $group->id;
+            if ($group->pivot->price !== null) {
+                $this->productGroupPrices[$group->id] = (float) $group->pivot->price;
+            }
+        }
 
         // Load subcategories for the selected category
         $this->subcategories = $this->category_id
@@ -563,7 +571,14 @@ class Products extends Component
         }
 
         // Sync elegibles (ingredient groups) — always
-        $item->ingredientGroups()->sync(array_map('intval', $this->productGroups));
+        $syncData = [];
+        foreach ($this->productGroups as $groupId) {
+            $price = isset($this->productGroupPrices[$groupId]) && $this->productGroupPrices[$groupId] !== ''
+                        ? (float) $this->productGroupPrices[$groupId] 
+                        : null;
+            $syncData[(int) $groupId] = ['price' => $price];
+        }
+        $item->ingredientGroups()->sync($syncData);
 
         $isNew
             ? ActivityLogService::logCreate('products', $item, "Producto '{$item->name}' creado")
@@ -1043,7 +1058,7 @@ class Products extends Component
             'unit_id' => 'required|exists:units,id',
             'tax_id' => 'nullable|exists:taxes,id',
             'purchase_price' => 'required|numeric|min:0',
-            'sale_price' => 'required|numeric|min:0',
+            'sale_price' => 'nullable|numeric|min:0',
             'min_stock' => 'required|integer|min:0',
             'max_stock' => 'nullable|integer|min:0',
             'current_stock' => 'required|integer|min:0',
@@ -1364,6 +1379,7 @@ class Products extends Component
         $this->preparationStationId = null;
         $this->productIngredients = [];
         $this->productGroups = [];
+        $this->productGroupPrices = [];
     }
 
     // ==================== CSV EXPORT METHOD ====================

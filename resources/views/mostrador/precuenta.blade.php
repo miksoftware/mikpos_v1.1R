@@ -142,8 +142,19 @@
             @php
                 $subtotalAcc = 0;
                 $taxAcc = 0;
+                $aggregatedItems = [];
+                foreach($cuenta->items as $item) {
+                    $key = $item->item_name . '_' . $item->unit_price;
+                    if (!isset($aggregatedItems[$key])) {
+                        $aggregatedItems[$key] = clone $item;
+                    } else {
+                        $aggregatedItems[$key]->quantity += $item->quantity;
+                        $aggregatedItems[$key]->subtotal += $item->subtotal;
+                        $aggregatedItems[$key]->tax_amount += $item->tax_amount;
+                    }
+                }
             @endphp
-            @foreach($cuenta->items as $item)
+            @foreach($aggregatedItems as $item)
             @php
                 $unitTotal = (float)$item->unit_price + ((float)$item->unit_price * (float)$item->tax_rate / 100);
                 $lineTotal = round((float)$item->subtotal + (float)$item->tax_amount, 2);
