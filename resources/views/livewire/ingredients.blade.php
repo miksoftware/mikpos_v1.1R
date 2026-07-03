@@ -58,6 +58,8 @@
                     <tr>
                         <th class="px-6 py-4 text-left text-sm font-semibold text-slate-500 uppercase">Nombre</th>
                         <th class="px-6 py-4 text-left text-sm font-semibold text-slate-500 uppercase">Unidad</th>
+                        <th class="px-6 py-4 text-left text-sm font-semibold text-slate-500 uppercase">Categoría</th>
+                        <th class="px-6 py-4 text-left text-sm font-semibold text-slate-500 uppercase">Impuesto</th>
                         <th class="px-6 py-4 text-right text-sm font-semibold text-slate-500 uppercase">Stock</th>
                         <th class="px-6 py-4 text-right text-sm font-semibold text-slate-500 uppercase">P. Compra</th>
                         <th class="px-6 py-4 text-right text-sm font-semibold text-slate-500 uppercase">P. Venta</th>
@@ -84,6 +86,12 @@
                         </td>
                         <td class="px-6 py-4 text-sm text-slate-500">
                             {{ $item->unit?->abbreviation ?? '-' }}
+                        </td>
+                        <td class="px-6 py-4 text-sm text-slate-500">
+                            {{ $item->category?->name ?? '-' }}
+                        </td>
+                        <td class="px-6 py-4 text-sm text-slate-500">
+                            {{ $item->tax?->name ?? '-' }}
                         </td>
                         <td class="px-6 py-4 text-right text-sm">
                             @if($item->manage_inventory && $item->stock !== null)
@@ -132,7 +140,7 @@
                     </tr>
                     @empty
                     <tr>
-                        <td colspan="7" class="px-6 py-12 text-center text-slate-500">No hay ingredientes registrados</td>
+                        <td colspan="9" class="px-6 py-12 text-center text-slate-500">No hay ingredientes registrados</td>
                     </tr>
                     @endforelse
                 </tbody>

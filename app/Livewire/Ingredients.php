@@ -58,7 +58,7 @@ class Ingredients extends Component
     {
         $ingredients = Ingredient::query()
             ->when(trim($this->search), fn($q) => $q->where('name', 'like', '%' . trim($this->search) . '%'))
-            ->with(['unit', 'tax'])
+            ->with(['unit', 'tax', 'category'])
             ->withCount('groups')
             ->latest()
             ->paginate(10, pageName: 'ingredientsPage');
