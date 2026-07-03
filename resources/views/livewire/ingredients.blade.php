@@ -355,6 +355,18 @@
                                 </select>
                                 @error('tax_id')<span class="text-red-500 text-xs">{{ $message }}</span>@enderror
                             </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 mb-1">Categoría POS</label>
+                                <select wire:model="category_id"
+                                    class="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261] transition-all text-sm bg-white">
+                                    <option value="">— Sin categoría —</option>
+                                    @foreach($categories as $category)
+                                    <option value="{{ $category->id }}">{{ $category->name }}</option>
+                                    @endforeach
+                                </select>
+                                @error('category_id')<span class="text-red-500 text-xs">{{ $message }}</span>@enderror
+                            </div>
                         </div>
 
                         {{-- Sección NO POS: solo precio compra + unidad (cuando NO muestra en POS) --}}

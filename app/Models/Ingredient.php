@@ -23,6 +23,7 @@ class Ingredient extends Model
         'show_in_pos',
         'is_active',
         'preparation_station_id',
+        'category_id',
     ];
 
     protected function casts(): array
@@ -56,5 +57,10 @@ class Ingredient extends Model
     public function groups(): BelongsToMany
     {
         return $this->belongsToMany(IngredientGroup::class, 'ingredient_group_ingredient');
+    }
+
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(Category::class);
     }
 }

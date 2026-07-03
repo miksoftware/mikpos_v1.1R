@@ -1681,6 +1681,10 @@ class Mostrador extends Component
                 ->where('show_in_pos', true)
                 ->where('sale_price', '>', 0);
 
+            if ($this->selectedCategoryId) {
+                $ingredientsQuery->where('category_id', $this->selectedCategoryId);
+            }
+
             if (strlen(trim($this->productSearch)) >= 2) {
                 $search = trim($this->productSearch);
                 $ingredientsQuery->where('name', 'like', "%{$search}%");

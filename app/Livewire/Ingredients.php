@@ -7,6 +7,7 @@ use App\Models\IngredientGroup;
 use App\Models\PreparationStation;
 use App\Models\Tax;
 use App\Models\Unit;
+use App\Models\Category;
 use App\Services\ActivityLogService;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
@@ -38,6 +39,7 @@ class Ingredients extends Component
     public bool $show_in_pos = true;
     public bool $is_active = true;
     public ?int $preparationStationId = null;
+    public ?int $category_id = null;
 
     // ─── Grupos ────────────────────────────────────────────────────────────────
     public string $searchGroup = '';
@@ -77,6 +79,7 @@ class Ingredients extends Component
             'allIngredients' => $allIngredients,
             'units'          => $units,
             'taxes'          => $taxes,
+            'categories'     => Category::where('is_active', true)->orderBy('name')->get(),
             'preparationStations' => PreparationStation::where('is_active', true)->orderBy('name')->get(),
         ]);
     }
@@ -123,6 +126,7 @@ class Ingredients extends Component
         $this->show_in_pos = $item->show_in_pos;
         $this->is_active = $item->is_active;
         $this->preparationStationId = $item->preparation_station_id;
+        $this->category_id = $item->category_id;
         $this->isModalOpen = true;
     }
 
@@ -141,7 +145,8 @@ class Ingredients extends Component
                 'stock'          => 'nullable|numeric|min:0',
                 'purchase_price' => 'nullable|numeric|min:0',
                 'sale_price'     => 'nullable|numeric|min:0',
-                'tax_id'           => 'nullable|exists:taxes,id',
+                'tax_id'         => 'nullable|exists:taxes,id',
+                'category_id'    => 'nullable|exists:categories,id',
             ],
             [
                 'name.required'           => 'El nombre del ingrediente es obligatorio.',
@@ -155,6 +160,7 @@ class Ingredients extends Component
                 'purchase_price.min'      => 'El precio de compra no puede ser negativo.',
                 'sale_price.numeric'      => 'El precio de venta debe ser un número.',
                 'sale_price.min'          => 'El precio de venta no puede ser negativo.',
+                'category_id.exists'      => 'La categoría seleccionada no es válida.',
             ]
         );
 
@@ -171,6 +177,7 @@ class Ingredients extends Component
             'show_in_pos'      => $this->show_in_pos,
             'is_active'        => $this->is_active,
             'preparation_station_id' => $this->preparationStationId ?: null,
+            'category_id'      => $this->show_in_pos ? ($this->category_id ?: null) : null,
         ]);
 
         if ($isNew) {
@@ -352,6 +359,7 @@ class Ingredients extends Component
         $this->show_in_pos = true;
         $this->is_active = true;
         $this->preparationStationId = null;
+        $this->category_id = null;
     }
 
     private function resetGroupForm(): void
