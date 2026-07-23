@@ -13,7 +13,7 @@ class LegacySaleController extends Controller
     {
         // Try to fetch legacy sales. If the table doesn't exist, it will throw an exception
         try {
-            $sales = LegacySale::orderBy('fechaventa', 'desc')->paginate(20);
+            $sales = LegacySale::with('items')->orderBy('fechaventa', 'desc')->paginate(20);
             $hasData = true;
         } catch (\Exception $e) {
             $sales = collect(); // empty collection

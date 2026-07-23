@@ -1,4 +1,4 @@
-<x-layouts.app>
+<x-app-layout>
     <x-slot name="title">Subir Archivo de Ventas Históricas</x-slot>
 
     <div class="p-6 max-w-3xl mx-auto">
@@ -63,4 +63,4 @@
             </form>
         </div>
     </div>
-</x-layouts.app>
+</x-app-layout>
