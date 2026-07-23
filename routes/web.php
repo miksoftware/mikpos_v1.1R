@@ -372,6 +372,14 @@ Route::middleware(['auth'])->group(function () {
         })->name('payslip')->middleware('permission:payrolls.view');
     });
 
+    // Legacy Sales (Ventas Históricas)
+    Route::prefix('historico-ventas')->name('legacy_sales.')->group(function () {
+        Route::get('/', [App\Http\Controllers\LegacySaleController::class, 'index'])->name('index');
+        Route::get('/subir', [App\Http\Controllers\LegacySaleController::class, 'showUploadForm'])->name('upload.form');
+        Route::post('/subir', [App\Http\Controllers\LegacySaleController::class, 'upload'])->name('upload');
+        Route::get('/{id}', [App\Http\Controllers\LegacySaleController::class, 'show'])->name('show');
+    });
+
     // Reports
     Route::prefix('reports')->name('reports.')->middleware('permission:reports.view')->group(function () {
         Route::get('/products-sold', App\Livewire\Reports\ProductsSold::class)

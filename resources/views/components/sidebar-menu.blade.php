@@ -136,6 +136,28 @@
 </a>
 @endif
 @endif
+@endif
+
+<!-- Ventas Históricas -->
+@if($mobile)
+<div class="{{ $sectionClass }}">
+    <a href="{{ route('legacy_sales.index') }}" @click="mobileMenuOpen = false"
+        class="flex items-center gap-3 px-3 py-2.5 rounded-xl {{ request()->routeIs('legacy_sales.*') ? $activeClass : $inactiveClass }}">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <span class="font-medium">Ventas Históricas</span>
+    </a>
+</div>
+@else
+<a href="{{ route('legacy_sales.index') }}"
+    class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group {{ request()->routeIs('legacy_sales.*') ? 'bg-white/10 text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white' }}">
+    <svg class="w-5 h-5 flex-shrink-0 group-hover:text-[#a855f7]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+    </svg>
+    <span x-show="sidebarOpen" class="font-medium">Ventas Históricas</span>
+</a>
+@endif
 
 <!-- Pedidos Tienda -->
 @if (auth()->user()->hasPermission('ecommerce_orders.view') && \App\Models\Branch::where('ecommerce_enabled', true)->where('is_active', true)->exists())
