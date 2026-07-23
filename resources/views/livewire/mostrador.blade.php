@@ -618,7 +618,96 @@
                         <p class="text-sm text-slate-500 mt-0.5">{{ $selectedMesaName }} · Total: <span class="font-semibold text-slate-800">${{ number_format($total, 2) }}</span></p>
                     </div>
 
-                    <div class="px-6 py-4 space-y-4">
+                    <div class="px-6 py-4 space-y-4" x-data="{ showCustomerSearch: false }">
+
+                        {{-- Customer Section --}}
+                        <div class="border-b border-slate-200 pb-4 mb-4">
+                            <div class="flex items-center justify-between mb-2">
+                                <label class="text-sm font-medium text-slate-700">Cliente</label>
+                                <div class="flex items-center gap-1">
+                                    <button @click="showCustomerSearch = true; $nextTick(() => $refs.customerSearchInput?.focus())" type="button" class="p-1.5 text-slate-400 hover:text-[#ff7261] hover:bg-slate-100 rounded-lg transition" title="Buscar cliente (F7)">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            @if($selectedCustomer)
+                            <div class="flex items-center justify-between p-3 bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl border border-slate-200">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-full bg-gradient-to-br from-[#ff7261] to-[#a855f7] flex items-center justify-center text-white font-medium">
+                                        {{ substr($selectedCustomer->first_name ?? $selectedCustomer->business_name, 0, 1) }}
+                                    </div>
+                                    <div>
+                                        <p class="font-medium text-slate-800">{{ $selectedCustomer->full_name ?? ($selectedCustomer->first_name . ' ' . $selectedCustomer->last_name) ?? $selectedCustomer->business_name }}</p>
+                                        <p class="text-xs text-slate-500">{{ $selectedCustomer->document_number }}</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-1">
+                                    <button @click="showCustomerSearch = true" type="button" class="p-1.5 text-slate-400 hover:text-[#ff7261] hover:bg-slate-100 rounded-lg transition" title="Cambiar cliente">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
+                                    </button>
+                                    @if(!$selectedCustomer->is_default)
+                                    <button wire:click="clearCustomer" type="button" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition" title="Quitar cliente">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                    </button>
+                                    @endif
+                                </div>
+                            </div>
+                            @else
+                            <button @click="showCustomerSearch = true; $nextTick(() => $refs.customerSearchInput?.focus())" type="button" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 border-dashed rounded-xl text-slate-500 hover:border-[#ff7261] hover:text-[#ff7261] transition text-sm text-left flex items-center gap-2">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                Buscar o crear cliente
+                            </button>
+                            @endif
+
+                            {{-- Search Customer Modal (Inner) --}}
+                            <div x-show="showCustomerSearch" style="display: none;" class="fixed inset-0 z-[110] flex items-center justify-center p-4">
+                                <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm" @click="showCustomerSearch = false"></div>
+                                <div class="relative w-full max-w-md bg-white rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
+                                    <div class="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+                                        <h3 class="font-bold text-slate-800">Buscar Cliente</h3>
+                                        <button @click="showCustomerSearch = false" type="button" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors">
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                        </button>
+                                    </div>
+                                    <div class="p-4 shrink-0 border-b border-slate-100">
+                                        <div class="relative">
+                                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                                <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                            </div>
+                                            <input wire:model.live.debounce.300ms="customerSearch" x-ref="customerSearchInput" type="text" 
+                                                class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261] text-sm"
+                                                placeholder="Buscar por nombre, documento..." autocomplete="off">
+                                        </div>
+                                    </div>
+                                    <div class="flex-1 overflow-y-auto p-4 space-y-2">
+                                        @if(strlen($customerSearch) >= 2)
+                                            @forelse($customerResults as $customer)
+                                                <button wire:click="selectCustomer({{ $customer['id'] }})" @click="showCustomerSearch = false" type="button"
+                                                    class="w-full text-left p-3 rounded-xl border border-slate-200 hover:border-[#ff7261] hover:shadow-md hover:shadow-[#ff7261]/10 transition group">
+                                                    <div class="flex items-center gap-3">
+                                                        <div class="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-[#ff7261]/10 flex items-center justify-center text-slate-500 group-hover:text-[#ff7261] font-medium transition-colors">
+                                                            {{ substr($customer['first_name'] ?? $customer['business_name'], 0, 1) }}
+                                                        </div>
+                                                        <div>
+                                                            <p class="font-medium text-slate-800">{{ $customer['first_name'] ?? '' }} {{ $customer['last_name'] ?? '' }} {{ $customer['business_name'] ?? '' }}</p>
+                                                            <p class="text-xs text-slate-500">{{ $customer['document_number'] }}</p>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            @empty
+                                                <div class="text-center py-6">
+                                                    <p class="text-sm text-slate-500 mb-4">No se encontraron clientes</p>
+                                                </div>
+                                            @endforelse
+                                        @else
+                                            <div class="text-center py-6 text-slate-400 text-sm">
+                                                Escribe al menos 2 caracteres para buscar
+                                            </div>
+                                        @endif
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
 
                         {{-- Payment rows --}}
                         @foreach($payments as $i => $payment)
@@ -844,7 +933,96 @@
                         <h3 class="text-lg font-bold text-slate-900">Dividir cuenta</h3>
                         <p class="text-sm text-slate-500 mt-0.5">Selecciona las cantidades a cobrar en este pago parcial</p>
                     </div>
-                    <div class="px-6 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
+                    <div class="px-6 py-4 space-y-4 max-h-[60vh] overflow-y-auto" x-data="{ showCustomerSearch: false }">
+
+                        {{-- Customer Section --}}
+                        <div class="border-b border-slate-200 pb-4 mb-4">
+                            <div class="flex items-center justify-between mb-2">
+                                <label class="text-sm font-medium text-slate-700">Cliente</label>
+                                <div class="flex items-center gap-1">
+                                    <button @click="showCustomerSearch = true; $nextTick(() => $refs.customerSearchInput?.focus())" type="button" class="p-1.5 text-slate-400 hover:text-[#ff7261] hover:bg-slate-100 rounded-lg transition" title="Buscar cliente (F7)">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            @if($selectedCustomer)
+                            <div class="flex items-center justify-between p-3 bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl border border-slate-200">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-full bg-gradient-to-br from-[#ff7261] to-[#a855f7] flex items-center justify-center text-white font-medium">
+                                        {{ substr($selectedCustomer->first_name ?? $selectedCustomer->business_name, 0, 1) }}
+                                    </div>
+                                    <div>
+                                        <p class="font-medium text-slate-800">{{ $selectedCustomer->full_name ?? ($selectedCustomer->first_name . ' ' . $selectedCustomer->last_name) ?? $selectedCustomer->business_name }}</p>
+                                        <p class="text-xs text-slate-500">{{ $selectedCustomer->document_number }}</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-1">
+                                    <button @click="showCustomerSearch = true" type="button" class="p-1.5 text-slate-400 hover:text-[#ff7261] hover:bg-slate-100 rounded-lg transition" title="Cambiar cliente">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
+                                    </button>
+                                    @if(!$selectedCustomer->is_default)
+                                    <button wire:click="clearCustomer" type="button" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition" title="Quitar cliente">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                    </button>
+                                    @endif
+                                </div>
+                            </div>
+                            @else
+                            <button @click="showCustomerSearch = true; $nextTick(() => $refs.customerSearchInput?.focus())" type="button" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 border-dashed rounded-xl text-slate-500 hover:border-[#ff7261] hover:text-[#ff7261] transition text-sm text-left flex items-center gap-2">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                Buscar o crear cliente
+                            </button>
+                            @endif
+
+                            {{-- Search Customer Modal (Inner) --}}
+                            <div x-show="showCustomerSearch" style="display: none;" class="fixed inset-0 z-[110] flex items-center justify-center p-4">
+                                <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm" @click="showCustomerSearch = false"></div>
+                                <div class="relative w-full max-w-md bg-white rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
+                                    <div class="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+                                        <h3 class="font-bold text-slate-800">Buscar Cliente</h3>
+                                        <button @click="showCustomerSearch = false" type="button" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors">
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                        </button>
+                                    </div>
+                                    <div class="p-4 shrink-0 border-b border-slate-100">
+                                        <div class="relative">
+                                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                                <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                            </div>
+                                            <input wire:model.live.debounce.300ms="customerSearch" x-ref="customerSearchInput" type="text" 
+                                                class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261] text-sm"
+                                                placeholder="Buscar por nombre, documento..." autocomplete="off">
+                                        </div>
+                                    </div>
+                                    <div class="flex-1 overflow-y-auto p-4 space-y-2">
+                                        @if(strlen($customerSearch) >= 2)
+                                            @forelse($customerResults as $customer)
+                                                <button wire:click="selectCustomer({{ $customer['id'] }})" @click="showCustomerSearch = false" type="button"
+                                                    class="w-full text-left p-3 rounded-xl border border-slate-200 hover:border-[#ff7261] hover:shadow-md hover:shadow-[#ff7261]/10 transition group">
+                                                    <div class="flex items-center gap-3">
+                                                        <div class="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-[#ff7261]/10 flex items-center justify-center text-slate-500 group-hover:text-[#ff7261] font-medium transition-colors">
+                                                            {{ substr($customer['first_name'] ?? $customer['business_name'], 0, 1) }}
+                                                        </div>
+                                                        <div>
+                                                            <p class="font-medium text-slate-800">{{ $customer['first_name'] ?? '' }} {{ $customer['last_name'] ?? '' }} {{ $customer['business_name'] ?? '' }}</p>
+                                                            <p class="text-xs text-slate-500">{{ $customer['document_number'] }}</p>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            @empty
+                                                <div class="text-center py-6">
+                                                    <p class="text-sm text-slate-500 mb-4">No se encontraron clientes</p>
+                                                </div>
+                                            @endforelse
+                                        @else
+                                            <div class="text-center py-6 text-slate-400 text-sm">
+                                                Escribe al menos 2 caracteres para buscar
+                                            </div>
+                                        @endif
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
 
                         {{-- Items table --}}
                         <div class="space-y-2">

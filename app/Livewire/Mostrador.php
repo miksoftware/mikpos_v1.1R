@@ -77,6 +77,27 @@ class Mostrador extends Component
     public string $splitNotes = '';
 
     // ─── Branch / Cash register ───────────────────────────────────────────────
+    public $waiterId = null;
+
+    // Customer selection
+    public $customerId = null;
+    public $customerSearch = '';
+    public $selectedCustomer = null;
+    public $customerResults = [];
+    
+    // Create customer form
+    public $showCreateCustomer = false;
+    public $newCustomerType = 'natural';
+    public $newCustomerDocumentType = null;
+    public $newCustomerDocument = '';
+    public $newCustomerFirstName = '';
+    public $newCustomerLastName = '';
+    public $newCustomerBusinessName = '';
+    public $newCustomerPhone = '';
+    public $newCustomerEmail = '';
+    public $newCustomerDepartmentId = '';
+    public $newCustomerMunicipalityId = '';
+    public $newCustomerMunicipalities = [];
     public $branchId = null;
     public $cashRegister = null;
     public $openReconciliation = null;
@@ -109,6 +130,8 @@ class Mostrador extends Component
         } else {
             $this->needsReconciliation = true;
         }
+
+        $this->loadDefaultCustomer();
 
         // Fallback: if still no branchId, use the first active branch
         if (!$this->branchId) {
@@ -253,6 +276,159 @@ class Mostrador extends Component
                 'sent_at'              => $item->sent_at?->toDateTimeString(),
                 'selected_ingredients' => $selections,
             ];
+        }
+    }
+
+    // ─── Customer management ──────────────────────────────────────────────────
+
+    public function loadDefaultCustomer()
+    {
+        $defaultCustomer = \App\Models\Customer::where('is_default', true)
+            ->forBranch($this->branchId)
+            ->first();
+        
+        if ($defaultCustomer) {
+            $this->customerId = $defaultCustomer->id;
+            $this->selectedCustomer = $defaultCustomer;
+        }
+    }
+
+    public function updatedCustomerSearch()
+    {
+        if (strlen(trim($this->customerSearch)) >= 2) {
+            $this->customerResults = \App\Models\Customer::where('branch_id', $this->branchId)
+                ->where(function($q) {
+                    $term = '%' . trim($this->customerSearch) . '%';
+                    $q->where('first_name', 'like', $term)
+                      ->orWhere('last_name', 'like', $term)
+                      ->orWhere('business_name', 'like', $term)
+                      ->orWhere('document_number', 'like', $term);
+                })
+                ->limit(5)
+                ->get()
+                ->toArray();
+        } else {
+            $this->customerResults = [];
+        }
+    }
+
+    public function selectCustomer($customerId)
+    {
+        $this->selectedCustomer = \App\Models\Customer::find($customerId);
+        $this->customerId = $customerId;
+        $this->customerSearch = '';
+        $this->customerResults = [];
+    }
+
+    public function clearCustomer()
+    {
+        $this->loadDefaultCustomer();
+        $this->customerSearch = '';
+        $this->customerResults = [];
+    }
+
+    public function openCreateCustomer()
+    {
+        $this->showCreateCustomer = true;
+        $this->resetCreateCustomerForm();
+    }
+
+    public function closeCreateCustomer()
+    {
+        $this->showCreateCustomer = false;
+        $this->resetCreateCustomerForm();
+    }
+
+    public function resetCreateCustomerForm()
+    {
+        $this->newCustomerType = 'natural';
+        $this->newCustomerDocumentType = null;
+        $this->newCustomerDocument = '';
+        $this->newCustomerFirstName = '';
+        $this->newCustomerLastName = '';
+        $this->newCustomerBusinessName = '';
+        $this->newCustomerPhone = '';
+        $this->newCustomerEmail = '';
+        $this->newCustomerDepartmentId = '';
+        $this->newCustomerMunicipalityId = '';
+        $this->newCustomerMunicipalities = [];
+    }
+
+    public function updatedNewCustomerDepartmentId()
+    {
+        $this->newCustomerMunicipalityId = '';
+        $this->newCustomerMunicipalities = $this->newCustomerDepartmentId
+            ? \App\Models\Municipality::where('department_id', $this->newCustomerDepartmentId)
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get()
+                ->toArray()
+            : [];
+    }
+
+    public function saveNewCustomer()
+    {
+        if ($this->newCustomerType === 'natural') {
+            if (empty($this->newCustomerFirstName)) {
+                $this->dispatch('notify', message: 'El nombre es obligatorio', type: 'error');
+                return;
+            }
+        } else {
+            if (empty($this->newCustomerBusinessName)) {
+                $this->dispatch('notify', message: 'La razón social es obligatoria', type: 'error');
+                return;
+            }
+        }
+
+        if (empty($this->newCustomerDocument)) {
+            $this->dispatch('notify', message: 'El número de documento es obligatorio', type: 'error');
+            return;
+        }
+
+        if (empty($this->newCustomerDepartmentId)) {
+            $this->dispatch('notify', message: 'El departamento es obligatorio', type: 'error');
+            return;
+        }
+
+        if (empty($this->newCustomerMunicipalityId)) {
+            $this->dispatch('notify', message: 'El municipio es obligatorio', type: 'error');
+            return;
+        }
+
+        $exists = \App\Models\Customer::where('document_number', $this->newCustomerDocument)
+            ->forBranch($this->branchId)
+            ->exists();
+
+        if ($exists) {
+            $this->dispatch('notify', message: 'Ya existe un cliente con ese documento', type: 'error');
+            return;
+        }
+
+        try {
+            $customer = \App\Models\Customer::create([
+                'branch_id' => $this->branchId,
+                'customer_type' => $this->newCustomerType,
+                'tax_document_id' => $this->newCustomerDocumentType,
+                'document_number' => $this->newCustomerDocument,
+                'first_name' => $this->newCustomerType === 'natural' ? $this->newCustomerFirstName : null,
+                'last_name' => $this->newCustomerType === 'natural' ? $this->newCustomerLastName : null,
+                'business_name' => $this->newCustomerType === 'juridico' ? $this->newCustomerBusinessName : null,
+                'phone' => $this->newCustomerPhone ?: null,
+                'email' => $this->newCustomerEmail ?: null,
+                'department_id' => $this->newCustomerDepartmentId,
+                'municipality_id' => $this->newCustomerMunicipalityId,
+                'is_active' => true,
+                'is_default' => false,
+            ]);
+
+            $this->selectCustomer($customer->id);
+            $this->showCreateCustomer = false;
+            $this->resetCreateCustomerForm();
+            
+            $this->dispatch('close-customer-modal');
+            $this->dispatch('notify', message: 'Cliente creado correctamente', type: 'success');
+        } catch (\Exception $e) {
+            $this->dispatch('notify', message: 'Error al crear cliente: ' . $e->getMessage(), type: 'error');
         }
     }
 
@@ -1048,6 +1224,11 @@ class Mostrador extends Component
         return round($this->getSubtotalProperty() + $this->getTaxTotalProperty(), 2);
     }
 
+    public function cartTotal(): float
+    {
+        return $this->getTotalProperty();
+    }
+
     public function getTotalReceivedProperty(): float
     {
         return round(array_sum(array_column($this->payments, 'amount')), 2);
@@ -1101,6 +1282,11 @@ class Mostrador extends Component
 
     public function processPayment(): void
     {
+        if (empty($this->customerId)) {
+            $this->dispatch('notify', message: 'Debes seleccionar un cliente para facturar', type: 'error');
+            return;
+        }
+
         // Validate payments
         foreach ($this->payments as $payment) {
             if (empty($payment['method_id'])) {
@@ -1127,6 +1313,7 @@ class Mostrador extends Component
             // Create Sale
             $sale = Sale::create([
                 'branch_id'               => $this->branchId,
+                'customer_id'             => $this->customerId,
                 'cash_reconciliation_id'  => $this->openReconciliation->id,
                 'mesa_id'                 => $this->selectedMesaId,
                 'user_id'                 => auth()->id(),
@@ -1449,12 +1636,22 @@ class Mostrador extends Component
 
     public function processSplitPayment(): void
     {
+        if (empty($this->customerId)) {
+            $this->dispatch('notify', message: 'Debes seleccionar un cliente para facturar', type: 'error');
+            return;
+        }
+
         if ($this->needsReconciliation) {
             $this->dispatch('notify', message: 'Debes abrir la caja antes de cobrar', type: 'error');
             return;
         }
 
         $splitTotal = $this->getSplitTotalProperty();
+
+        if (!$this->customerId) {
+            $this->dispatch('notify', message: 'Debe seleccionar un cliente para cobrar', type: 'error');
+            return;
+        }
 
         if ($splitTotal <= 0) {
             $this->dispatch('notify', message: 'Selecciona al menos un ítem para cobrar', type: 'error');
@@ -1507,6 +1704,7 @@ class Mostrador extends Component
             // Create partial sale
             $sale = Sale::create([
                 'branch_id'               => $this->branchId,
+                'customer_id'             => $this->customerId,
                 'cash_reconciliation_id'  => $this->openReconciliation->id,
                 'mesa_id'                 => $this->selectedMesaId,
                 'user_id'                 => auth()->id(),
