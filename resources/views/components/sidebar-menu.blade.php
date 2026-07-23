@@ -136,7 +136,6 @@
 </a>
 @endif
 @endif
-@endif
 
 <!-- Ventas Históricas -->
 @if($mobile)
