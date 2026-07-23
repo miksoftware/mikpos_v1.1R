@@ -15,6 +15,7 @@ class InventoryMovement extends Model
         'system_document_id',
         'document_number',
         'product_id',
+        'ingredient_id',
         'branch_id',
         'user_id',
         'movement_type',
@@ -46,6 +47,11 @@ class InventoryMovement extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function ingredient(): BelongsTo
+    {
+        return $this->belongsTo(Ingredient::class);
     }
 
     public function branch(): BelongsTo
@@ -91,6 +97,49 @@ class InventoryMovement extends Model
             'system_document_id' => $systemDocument->id,
             'document_number' => $systemDocument->generateNextNumber(),
             'product_id' => $product->id,
+            'branch_id' => $branchId ?? auth()->user()->branch_id,
+            'user_id' => auth()->id(),
+            'movement_type' => $movementType,
+            'quantity' => $quantity,
+            'stock_before' => $stockBefore,
+            'stock_after' => $stockAfter,
+            'unit_cost' => $unitCost,
+            'total_cost' => $unitCost ? $unitCost * $quantity : null,
+            'reference_type' => $reference ? get_class($reference) : null,
+            'reference_id' => $reference?->id,
+            'notes' => $notes,
+            'movement_date' => now(),
+        ]);
+    }
+
+    /**
+     * Create an inventory movement for an ingredient
+     */
+    public static function createIngredientMovement(
+        string $documentCode,
+        Ingredient $ingredient,
+        string $movementType,
+        float $quantity,
+        ?float $unitCost = null,
+        ?string $notes = null,
+        ?Model $reference = null,
+        ?int $branchId = null
+    ): self {
+        $systemDocument = SystemDocument::findByCode($documentCode);
+        
+        if (!$systemDocument) {
+            throw new \Exception("System document with code '{$documentCode}' not found");
+        }
+
+        $stockBefore = $ingredient->stock ?? 0;
+        $stockAfter = $movementType === 'in' 
+            ? $stockBefore + $quantity 
+            : $stockBefore - $quantity;
+
+        return static::create([
+            'system_document_id' => $systemDocument->id,
+            'document_number' => $systemDocument->generateNextNumber(),
+            'ingredient_id' => $ingredient->id,
             'branch_id' => $branchId ?? auth()->user()->branch_id,
             'user_id' => auth()->id(),
             'movement_type' => $movementType,

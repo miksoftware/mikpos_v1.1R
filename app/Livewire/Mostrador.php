@@ -1150,10 +1150,18 @@ class Mostrador extends Component
                 $productId    = $item['type'] === 'product'    ? $item['item_id'] : null;
                 $ingredientId = $item['type'] === 'ingredient' ? $item['item_id'] : null;
 
+                $productName = $item['name'];
+                if (!empty($item['selected_ingredients'])) {
+                    $ingredientNames = collect($item['selected_ingredients'])->pluck('ingredient_name')->filter()->join(', ');
+                    if ($ingredientNames) {
+                        $productName .= " ($ingredientNames)";
+                    }
+                }
+
                 SaleItem::create([
                     'sale_id'      => $sale->id,
                     'product_id'   => $productId,
-                    'product_name' => $item['name'],
+                    'product_name' => $productName,
                     'product_sku'  => null,
                     'unit_price'   => $item['base_price'],
                     'quantity'     => $item['quantity'],
@@ -1519,10 +1527,18 @@ class Mostrador extends Component
 
             foreach ($paidItems as $pi) {
                 $item = $pi['cart_item'];
+                $productName = $item['name'];
+                if (!empty($item['selected_ingredients'])) {
+                    $ingredientNames = collect($item['selected_ingredients'])->pluck('ingredient_name')->filter()->join(', ');
+                    if ($ingredientNames) {
+                        $productName .= " ($ingredientNames)";
+                    }
+                }
+
                 SaleItem::create([
                     'sale_id'             => $sale->id,
                     'product_id'          => $item['type'] === 'product' ? $item['item_id'] : null,
-                    'product_name'        => $item['name'],
+                    'product_name'        => $productName,
                     'product_sku'         => null,
                     'unit_price'          => $item['base_price'],
                     'quantity'            => $pi['qty_paid'],

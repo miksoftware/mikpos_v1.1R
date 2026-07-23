@@ -209,6 +209,8 @@ class Purchase extends Model
         // Update stock for each item and create inventory movements
         foreach ($this->items as $item) {
             $product = $item->product;
+            $ingredient = $item->ingredient;
+            
             if ($product) {
                 // Create inventory movement
                 InventoryMovement::createMovement(
@@ -228,6 +230,26 @@ class Purchase extends Model
                 // Optionally update purchase price if different
                 if ($item->unit_cost != $product->purchase_price) {
                     $product->update(['purchase_price' => $item->unit_cost]);
+                }
+            } elseif ($ingredient) {
+                // Create inventory movement
+                InventoryMovement::createIngredientMovement(
+                    'purchase',
+                    $ingredient,
+                    'in',
+                    $item->quantity,
+                    (float) $item->unit_cost,
+                    "Compra #{$this->purchase_number}",
+                    $this,
+                    $this->branch_id
+                );
+
+                // Update stock
+                $ingredient->increment('stock', $item->quantity);
+                
+                // Optionally update purchase price if different
+                if ($item->unit_cost != $ingredient->purchase_price) {
+                    $ingredient->update(['purchase_price' => $item->unit_cost]);
                 }
             }
         }
@@ -251,6 +273,8 @@ class Purchase extends Model
         if ($this->status === 'completed') {
             foreach ($this->items as $item) {
                 $product = $item->product;
+                $ingredient = $item->ingredient;
+                
                 if ($product) {
                     // Create reversal inventory movement
                     InventoryMovement::createMovement(
@@ -265,6 +289,20 @@ class Purchase extends Model
                     );
 
                     $product->decrement('current_stock', $item->quantity);
+                } elseif ($ingredient) {
+                    // Create reversal inventory movement
+                    InventoryMovement::createIngredientMovement(
+                        'adjustment',
+                        $ingredient,
+                        'out',
+                        $item->quantity,
+                        (float) $item->unit_cost,
+                        "Anulación compra #{$this->purchase_number}",
+                        $this,
+                        $this->branch_id
+                    );
+
+                    $ingredient->decrement('stock', $item->quantity);
                 }
             }
         }

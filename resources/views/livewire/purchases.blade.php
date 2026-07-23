@@ -319,10 +319,10 @@
                                     @foreach($viewingPurchase->items as $pitem)
                                     <tr>
                                         <td class="px-4 py-3">
-                                            <p class="font-medium text-slate-800">{{ $pitem->product?->name ?? 'Producto eliminado' }}</p>
-                                            <p class="text-xs text-slate-500">{{ $pitem->product?->sku ?? '' }}</p>
+                                            <p class="font-medium text-slate-800">{{ $pitem->product?->name ?? $pitem->ingredient?->name ?? 'Elemento eliminado' }}</p>
+                                            <p class="text-xs text-slate-500">{{ $pitem->product?->sku ?? ($pitem->ingredient_id ? 'ING-' . str_pad($pitem->ingredient_id, 4, '0', STR_PAD_LEFT) : '') }}</p>
                                         </td>
-                                        <td class="px-4 py-3 text-center">{{ $pitem->quantity }} {{ $pitem->product?->unit?->abbreviation ?? 'und' }}</td>
+                                        <td class="px-4 py-3 text-center">{{ $pitem->quantity }} {{ $pitem->product?->unit?->abbreviation ?? $pitem->ingredient?->unit?->abbreviation ?? 'und' }}</td>
                                         <td class="px-4 py-3 text-right">${{ number_format($pitem->unit_cost, 2) }}</td>
                                         <td class="px-4 py-3 text-right font-medium">${{ number_format($pitem->subtotal, 2) }}</td>
                                     </tr>

@@ -206,16 +206,21 @@ class PurchaseCreate extends Component
 
         // Load items
         foreach ($this->purchase->items as $item) {
+            $isProduct = !empty($item->product_id);
+            $type = $isProduct ? 'product' : 'ingredient';
+
             $this->cartItems[] = [
                 'id' => $item->id,
+                'type' => $type,
                 'product_id' => $item->product_id,
-                'name' => $item->product?->name ?? 'Producto eliminado',
-                'sku' => $item->product?->sku,
-                'image' => $item->product?->image,
-                'unit' => $item->product?->unit?->abbreviation ?? 'und',
+                'ingredient_id' => $item->ingredient_id,
+                'name' => $isProduct ? ($item->product?->name ?? 'Producto eliminado') : ($item->ingredient?->name ?? 'Ingrediente eliminado'),
+                'sku' => $isProduct ? $item->product?->sku : ('ING-' . str_pad($item->ingredient_id, 4, '0', STR_PAD_LEFT)),
+                'image' => $isProduct ? $item->product?->image : null,
+                'unit' => $isProduct ? ($item->product?->unit?->abbreviation ?? 'und') : ($item->ingredient?->unit?->abbreviation ?? 'und'),
                 'quantity' => $item->quantity,
                 'unit_cost' => (float) $item->unit_cost,
-                'sale_price' => (float) ($item->product?->sale_price ?? 0),
+                'sale_price' => (float) ($isProduct ? ($item->product?->sale_price ?? 0) : ($item->ingredient?->sale_price ?? 0)),
                 'tax_rate' => (float) $item->tax_rate,
                 'tax_amount' => (float) $item->tax_amount,
                 'discount' => (float) $item->discount,
@@ -260,11 +265,12 @@ class PurchaseCreate extends Component
                     ->orWhere('barcode', 'like', "%{$trimmed}%");
             });
 
-        $this->searchResults = $query
+        $products = $query
             ->with(['category', 'unit', 'tax'])
             ->limit(10)
             ->get()
             ->map(fn($p) => [
+                'type' => 'product',
                 'id' => $p->id,
                 'name' => $p->name,
                 'sku' => $p->sku,
@@ -277,12 +283,38 @@ class PurchaseCreate extends Component
                 'tax_rate' => (float) ($p->tax?->value ?? 0),
             ])
             ->toArray();
+
+        $ingredients = \App\Models\Ingredient::where('is_active', true)
+            ->where('manage_inventory', true)
+            ->where('name', 'like', "%{$trimmed}%")
+            ->with(['category', 'unit', 'tax'])
+            ->limit(10)
+            ->get()
+            ->map(fn($i) => [
+                'type' => 'ingredient',
+                'id' => $i->id,
+                'name' => $i->name,
+                'sku' => 'ING-' . str_pad($i->id, 4, '0', STR_PAD_LEFT),
+                'barcode' => null,
+                'image' => null,
+                'purchase_price' => (float) $i->purchase_price,
+                'current_stock' => $i->stock,
+                'unit' => $i->unit?->abbreviation ?? 'und',
+                'category' => $i->category?->name,
+                'tax_rate' => (float) ($i->tax?->value ?? 0),
+            ])
+            ->toArray();
+
+        $this->searchResults = array_merge($products, $ingredients);
     }
 
-    public function addProduct(int $productId)
+    public function addProduct(string $type, int $itemId)
     {
         foreach ($this->cartItems as $index => $item) {
-            if ($item['product_id'] === $productId) {
+            $isMatch = ($type === 'product' && ($item['product_id'] ?? null) === $itemId) ||
+                       ($type === 'ingredient' && ($item['ingredient_id'] ?? null) === $itemId);
+            
+            if ($isMatch) {
                 $this->cartItems[$index]['quantity']++;
                 $this->calculateItemTotal($index);
                 $this->calculateTotals();
@@ -292,27 +324,42 @@ class PurchaseCreate extends Component
             }
         }
 
-        $product = Product::with(['unit', 'tax'])->find($productId);
-        if (!$product) {
+        if ($type === 'product') {
+            $model = Product::with(['unit', 'tax'])->find($itemId);
+            $product_id = $itemId;
+            $ingredient_id = null;
+            $sku = $model?->sku;
+            $image = $model?->image;
+        } else {
+            $model = \App\Models\Ingredient::with(['unit', 'tax'])->find($itemId);
+            $product_id = null;
+            $ingredient_id = $itemId;
+            $sku = 'ING-' . str_pad($itemId, 4, '0', STR_PAD_LEFT);
+            $image = null;
+        }
+
+        if (!$model) {
             return;
         }
 
         $this->cartItems[] = [
             'id' => null,
-            'product_id' => $product->id,
-            'name' => $product->name,
-            'sku' => $product->sku,
-            'image' => $product->image,
-            'unit' => $product->unit?->abbreviation ?? 'und',
+            'type' => $type,
+            'product_id' => $product_id,
+            'ingredient_id' => $ingredient_id,
+            'name' => $model->name,
+            'sku' => $sku,
+            'image' => $image,
+            'unit' => $model->unit?->abbreviation ?? 'und',
             'quantity' => 1,
-            'unit_cost' => (float) $product->purchase_price,
-            'sale_price' => (float) $product->sale_price,
-            'tax_rate' => (float) ($product->tax?->value ?? 0),
+            'unit_cost' => (float) $model->purchase_price,
+            'sale_price' => (float) $model->sale_price,
+            'tax_rate' => (float) ($model->tax?->value ?? 0),
             'tax_amount' => 0,
             'discount' => 0,
             'discount_type' => 'percentage',
             'discount_type_value' => 0,
-            'subtotal' => (float) $product->purchase_price,
+            'subtotal' => (float) $model->purchase_price,
             'total' => 0,
         ];
 
@@ -349,7 +396,7 @@ class PurchaseCreate extends Component
             ->first();
 
         if ($product) {
-            $this->addProduct($product->id);
+            $this->addProduct('product', $product->id);
         } else {
             $this->dispatch('notify', message: 'Producto no encontrado', type: 'error');
         }
@@ -976,6 +1023,7 @@ class PurchaseCreate extends Component
             PurchaseItem::create([
                 'purchase_id' => $purchase->id,
                 'product_id' => $item['product_id'],
+                'ingredient_id' => $item['ingredient_id'],
                 'quantity' => $item['quantity'],
                 'unit_cost' => $item['unit_cost'],
                 'tax_rate' => $item['tax_rate'],
@@ -987,18 +1035,34 @@ class PurchaseCreate extends Component
                 'total' => $item['total'],
             ]);
 
-            // Update product prices if changed
-            $product = Product::find($item['product_id']);
-            if ($product) {
-                $updates = [];
-                if ($item['unit_cost'] != $product->purchase_price) {
-                    $updates['purchase_price'] = $item['unit_cost'];
+            // Update product/ingredient prices if changed
+            if (!empty($item['product_id'])) {
+                $product = Product::find($item['product_id']);
+                if ($product) {
+                    $updates = [];
+                    if ($item['unit_cost'] != $product->purchase_price) {
+                        $updates['purchase_price'] = $item['unit_cost'];
+                    }
+                    if (isset($item['sale_price']) && $item['sale_price'] != $product->sale_price) {
+                        $updates['sale_price'] = $item['sale_price'];
+                    }
+                    if (!empty($updates)) {
+                        $product->update($updates);
+                    }
                 }
-                if (isset($item['sale_price']) && $item['sale_price'] != $product->sale_price) {
-                    $updates['sale_price'] = $item['sale_price'];
-                }
-                if (!empty($updates)) {
-                    $product->update($updates);
+            } elseif (!empty($item['ingredient_id'])) {
+                $ingredient = \App\Models\Ingredient::find($item['ingredient_id']);
+                if ($ingredient) {
+                    $updates = [];
+                    if ($item['unit_cost'] != $ingredient->purchase_price) {
+                        $updates['purchase_price'] = $item['unit_cost'];
+                    }
+                    if (isset($item['sale_price']) && $item['sale_price'] != $ingredient->sale_price) {
+                        $updates['sale_price'] = $item['sale_price'];
+                    }
+                    if (!empty($updates)) {
+                        $ingredient->update($updates);
+                    }
                 }
             }
         }
@@ -1030,9 +1094,10 @@ class PurchaseCreate extends Component
             $this->purchase->inventoryMovements()->delete();
             
             foreach ($this->purchase->items as $item) {
-                $product = $item->product;
-                if ($product) {
-                    $product->decrement('current_stock', $item->quantity);
+                if ($item->product) {
+                    $item->product->decrement('current_stock', $item->quantity);
+                } elseif ($item->ingredient) {
+                    $item->ingredient->decrement('stock', $item->quantity);
                 }
             }
         }
@@ -1047,6 +1112,7 @@ class PurchaseCreate extends Component
             PurchaseItem::create([
                 'purchase_id' => $this->purchase->id,
                 'product_id' => $item['product_id'],
+                'ingredient_id' => $item['ingredient_id'],
                 'quantity' => $item['quantity'],
                 'unit_cost' => $item['unit_cost'],
                 'tax_rate' => $item['tax_rate'],
@@ -1058,18 +1124,34 @@ class PurchaseCreate extends Component
                 'total' => $item['total'],
             ]);
 
-            // Update product prices if changed
-            $product = Product::find($item['product_id']);
-            if ($product) {
-                $updates = [];
-                if ($item['unit_cost'] != $product->purchase_price) {
-                    $updates['purchase_price'] = $item['unit_cost'];
+            // Update product/ingredient prices if changed
+            if (!empty($item['product_id'])) {
+                $product = Product::find($item['product_id']);
+                if ($product) {
+                    $updates = [];
+                    if ($item['unit_cost'] != $product->purchase_price) {
+                        $updates['purchase_price'] = $item['unit_cost'];
+                    }
+                    if (isset($item['sale_price']) && $item['sale_price'] != $product->sale_price) {
+                        $updates['sale_price'] = $item['sale_price'];
+                    }
+                    if (!empty($updates)) {
+                        $product->update($updates);
+                    }
                 }
-                if (isset($item['sale_price']) && $item['sale_price'] != $product->sale_price) {
-                    $updates['sale_price'] = $item['sale_price'];
-                }
-                if (!empty($updates)) {
-                    $product->update($updates);
+            } elseif (!empty($item['ingredient_id'])) {
+                $ingredient = \App\Models\Ingredient::find($item['ingredient_id']);
+                if ($ingredient) {
+                    $updates = [];
+                    if ($item['unit_cost'] != $ingredient->purchase_price) {
+                        $updates['purchase_price'] = $item['unit_cost'];
+                    }
+                    if (isset($item['sale_price']) && $item['sale_price'] != $ingredient->sale_price) {
+                        $updates['sale_price'] = $item['sale_price'];
+                    }
+                    if (!empty($updates)) {
+                        $ingredient->update($updates);
+                    }
                 }
             }
         }

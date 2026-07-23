@@ -64,19 +64,23 @@
                 @if(count($searchResults) > 0)
                 <div class="absolute z-50 w-full mt-2 bg-white border border-slate-200 rounded-xl shadow-xl max-h-80 overflow-y-auto">
                     @foreach($searchResults as $result)
-                    <button type="button" wire:click="addProduct({{ $result['id'] }})" class="w-full px-4 py-3 flex items-center gap-4 hover:bg-gradient-to-r hover:from-[#ff7261]/5 hover:to-[#a855f7]/5 transition-colors text-left border-b border-slate-100 last:border-0">
+                    <button type="button" wire:click="addProduct('{{ $result['type'] }}', {{ $result['id'] }})" class="w-full px-4 py-3 text-left hover:bg-slate-50 flex items-center gap-4 transition-colors">
                         @if($result['image'])
-                        <img src="{{ Storage::url($result['image']) }}" class="w-12 h-12 rounded-lg object-cover">
+                        <img src="{{ Storage::url($result['image']) }}" class="w-10 h-10 rounded-lg object-cover">
                         @else
-                        <div class="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center">
-                            <svg class="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                        <div class="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
+                            <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
                         </div>
                         @endif
                         <div class="flex-1 min-w-0">
-                            <p class="font-semibold text-slate-800 truncate">{{ $result['name'] }}</p>
-                            <p class="text-sm text-slate-500">
-                                @if($result['sku'])SKU: {{ $result['sku'] }} · @endif
-                                @if($result['category']){{ $result['category'] }} · @endif
+                            <div class="flex items-center gap-2">
+                                <p class="text-sm font-semibold text-slate-800 truncate">{{ $result['name'] }}</p>
+                                @if($result['type'] === 'ingredient')
+                                <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700">Ingrediente</span>
+                                @endif
+                            </div>
+                            <p class="text-xs text-slate-500">
+                                {{ $result['sku'] ?? 'Sin SKU' }} · 
                                 Stock: {{ $result['current_stock'] }} {{ $result['unit'] }}
                             </p>
                         </div>

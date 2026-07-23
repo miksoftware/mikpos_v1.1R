@@ -194,7 +194,8 @@
             </h3>
             <div class="space-y-3">
                 @php
-                    $maxStock = collect($stockByCategory)->max('total_stock') ?: 1;
+                    $maxStock = (float) collect($stockByCategory)->max('total_stock');
+                    $maxStock = $maxStock > 0 ? $maxStock : 1;
                 @endphp
                 @forelse($stockByCategory as $category)
                 <div>
