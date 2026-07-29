@@ -93,11 +93,38 @@ class InventoryAdjustments extends Component
             ->when($this->productSearch, fn($q) => $q->where('name', 'like', "%{$this->productSearch}%")
                 ->orWhere('sku', 'like', "%{$this->productSearch}%"))
             ->limit(10)
-            ->get();
+            ->get()
+            ->map(function ($p) {
+                return (object)[
+                    'id' => $p->id,
+                    'type' => 'product',
+                    'name' => $p->name,
+                    'sku' => $p->sku,
+                    'current_stock' => $p->current_stock,
+                ];
+            });
+
+        $ingredients = \App\Models\Ingredient::query()
+            ->where('is_active', true)
+            ->where('manage_inventory', true)
+            ->when($this->productSearch, fn($q) => $q->where('name', 'like', "%{$this->productSearch}%"))
+            ->limit(10)
+            ->get()
+            ->map(function ($i) {
+                return (object)[
+                    'id' => $i->id,
+                    'type' => 'ingredient',
+                    'name' => $i->name,
+                    'sku' => 'Ingrediente',
+                    'current_stock' => $i->stock,
+                ];
+            });
+
+        $searchResults = $products->concat($ingredients)->sortBy('name')->take(10);
 
         return view('livewire.inventory-adjustments', [
             'documents' => $documents,
-            'products' => $products,
+            'searchResults' => $searchResults,
             'hasAdjustmentDocument' => (bool) $adjustmentDoc,
         ]);
     }
@@ -125,23 +152,29 @@ class InventoryAdjustments extends Component
         $this->showProductDropdown = strlen($this->productSearch) >= 2;
     }
 
-    public function addProduct($productId)
+    public function addItem($itemId, $itemType = 'product')
     {
-        $product = Product::find($productId);
-        if (!$product) return;
+        $itemModel = $itemType === 'product' ? Product::find($itemId) : \App\Models\Ingredient::find($itemId);
+        if (!$itemModel) return;
 
         foreach ($this->items as $item) {
-            if ($item['product_id'] == $productId) {
-                $this->dispatch('notify', message: 'Este producto ya está en la lista', type: 'warning');
+            if (isset($item['item_id']) && $item['item_id'] == $itemId && $item['item_type'] == $itemType) {
+                $this->dispatch('notify', message: 'Este item ya está en la lista', type: 'warning');
+                return;
+            } elseif (!isset($item['item_id']) && isset($item['product_id']) && $item['product_id'] == $itemId && $itemType == 'product') {
+                $this->dispatch('notify', message: 'Este item ya está en la lista', type: 'warning');
                 return;
             }
         }
 
         $this->items[] = [
-            'product_id' => $product->id,
-            'name' => $product->name,
-            'sku' => $product->sku,
-            'current_stock' => $product->current_stock ?? 0,
+            'product_id' => $itemType === 'product' ? $itemModel->id : null,
+            'ingredient_id' => $itemType === 'ingredient' ? $itemModel->id : null,
+            'item_id' => $itemModel->id,
+            'item_type' => $itemType,
+            'name' => $itemModel->name,
+            'sku' => $itemType === 'product' ? $itemModel->sku : 'Ingrediente',
+            'current_stock' => $itemType === 'product' ? ($itemModel->current_stock ?? 0) : ($itemModel->stock ?? 0),
             'quantity' => 1,
             'type' => 'in', // Default to entrada
         ];
@@ -173,7 +206,7 @@ class InventoryAdjustments extends Component
                     ->first();
 
                 if ($child) {
-                    $this->addProduct($child->product_id);
+                    $this->addItem($child->product_id, 'product');
                     $this->barcodeSearch = '';
                     $this->dispatch('focus-barcode-adjustment');
                     return;
@@ -187,7 +220,7 @@ class InventoryAdjustments extends Component
                     ->first();
 
                 if ($product) {
-                    $this->addProduct($product->id);
+                    $this->addItem($product->id, 'product');
                     $this->barcodeSearch = '';
                     $this->dispatch('focus-barcode-adjustment');
                     return;
@@ -202,7 +235,7 @@ class InventoryAdjustments extends Component
             ->first();
 
         if ($child) {
-            $this->addProduct($child->product_id);
+            $this->addItem($child->product_id, 'product');
             $this->barcodeSearch = '';
             $this->dispatch('focus-barcode-adjustment');
             return;
@@ -214,7 +247,7 @@ class InventoryAdjustments extends Component
             ->first();
 
         if ($product) {
-            $this->addProduct($product->id);
+            $this->addItem($product->id, 'product');
             $this->barcodeSearch = '';
             $this->dispatch('focus-barcode-adjustment');
             return;
@@ -285,10 +318,17 @@ class InventoryAdjustments extends Component
             $documentNumber = $adjustmentDoc->generateNextNumber();
 
             foreach ($this->items as $item) {
-                $product = Product::find($item['product_id']);
-                if (!$product) continue;
+                $isProduct = ($item['item_type'] ?? 'product') === 'product';
+                
+                if ($isProduct) {
+                    $model = Product::find($item['item_id'] ?? $item['product_id']);
+                } else {
+                    $model = \App\Models\Ingredient::find($item['item_id']);
+                }
+                
+                if (!$model) continue;
 
-                $stockBefore = $product->current_stock ?? 0;
+                $stockBefore = $isProduct ? ($model->current_stock ?? 0) : ($model->stock ?? 0);
                 $stockAfter = $item['type'] === 'in' 
                     ? $stockBefore + $item['quantity'] 
                     : $stockBefore - $item['quantity'];
@@ -296,21 +336,26 @@ class InventoryAdjustments extends Component
                 InventoryMovement::create([
                     'system_document_id' => $adjustmentDoc->id,
                     'document_number' => $documentNumber,
-                    'product_id' => $product->id,
+                    'product_id' => $isProduct ? $model->id : null,
+                    'ingredient_id' => !$isProduct ? $model->id : null,
                     'branch_id' => $branchId,
                     'user_id' => auth()->id(),
                     'movement_type' => $item['type'],
                     'quantity' => $item['quantity'],
                     'stock_before' => $stockBefore,
                     'stock_after' => $stockAfter,
-                    'unit_cost' => $product->purchase_price,
-                    'total_cost' => $product->purchase_price * $item['quantity'],
+                    'unit_cost' => $model->purchase_price,
+                    'total_cost' => $model->purchase_price * $item['quantity'],
                     'notes' => $this->notes,
                     'movement_date' => now(),
                 ]);
 
-                $product->current_stock = $stockAfter;
-                $product->save();
+                if ($isProduct) {
+                    $model->current_stock = $stockAfter;
+                } else {
+                    $model->stock = $stockAfter;
+                }
+                $model->save();
             }
 
             DB::commit();
@@ -341,7 +386,7 @@ class InventoryAdjustments extends Component
     public function viewDocument($documentNumber)
     {
         $this->viewingDocument = InventoryMovement::where('document_number', $documentNumber)
-            ->with(['product', 'user'])
+            ->with(['product', 'ingredient', 'user'])
             ->get();
         $this->isViewModalOpen = true;
     }
@@ -377,13 +422,22 @@ class InventoryAdjustments extends Component
             $firstMovement = $movements->first();
             
             foreach ($movements as $movement) {
-                $product = $movement->product;
-                if ($product) {
-                    // Reverse: if was 'in', subtract; if was 'out', add back
-                    $product->current_stock = $movement->movement_type === 'in'
-                        ? $product->current_stock - $movement->quantity
-                        : $product->current_stock + $movement->quantity;
-                    $product->save();
+                if ($movement->product_id) {
+                    $product = $movement->product;
+                    if ($product) {
+                        $product->current_stock = $movement->movement_type === 'in'
+                            ? $product->current_stock - $movement->quantity
+                            : $product->current_stock + $movement->quantity;
+                        $product->save();
+                    }
+                } elseif ($movement->ingredient_id) {
+                    $ingredient = $movement->ingredient;
+                    if ($ingredient) {
+                        $ingredient->stock = $movement->movement_type === 'in'
+                            ? $ingredient->stock - $movement->quantity
+                            : $ingredient->stock + $movement->quantity;
+                        $ingredient->save();
+                    }
                 }
                 $movement->delete();
             }

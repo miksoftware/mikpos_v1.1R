@@ -221,15 +221,15 @@
                                     <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                                 </div>
                                 <input wire:model.live.debounce.300ms="productSearch" type="text" class="w-full pl-10 pr-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261]" placeholder="Buscar producto por nombre o SKU...">
-                                @if($showProductDropdown && count($products) > 0)
+                                @if($showProductDropdown && count($searchResults) > 0)
                                 <div class="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
-                                    @foreach($products as $product)
-                                    <button wire:click="addProduct({{ $product->id }})" type="button" class="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center justify-between border-b border-slate-100 last:border-0">
+                                    @foreach($searchResults as $result)
+                                    <button wire:click="addItem({{ $result->id }}, '{{ $result->type }}')" type="button" class="w-full px-3 py-2 text-left hover:bg-slate-50 flex items-center justify-between border-b border-slate-100 last:border-0">
                                         <div>
-                                            <span class="font-medium text-slate-900">{{ $product->name }}</span>
-                                            <span class="text-sm text-slate-500 ml-2">{{ $product->sku }}</span>
+                                            <span class="font-medium text-slate-900">{{ $result->name }}</span>
+                                            <span class="text-sm text-slate-500 ml-2">{{ $result->sku }}</span>
                                         </div>
-                                        <span class="text-xs px-2 py-1 rounded bg-slate-100 text-slate-600">Stock: {{ $product->current_stock ?? 0 }}</span>
+                                        <span class="text-xs px-2 py-1 rounded bg-slate-100 text-slate-600">Stock: {{ $result->current_stock ?? 0 }}</span>
                                     </button>
                                     @endforeach
                                 </div>
@@ -364,8 +364,8 @@
                                 @foreach($viewingDocument as $movement)
                                 <tr>
                                     <td class="px-4 py-3">
-                                        <div class="font-medium text-slate-900">{{ $movement->product?->name ?? 'N/A' }}</div>
-                                        <div class="text-xs text-slate-500">{{ $movement->product?->sku }}</div>
+                                        <div class="font-medium text-slate-900">{{ $movement->product_id ? ($movement->product?->name ?? 'N/A') : ($movement->ingredient?->name ?? 'N/A') }}</div>
+                                        <div class="text-xs text-slate-500">{{ $movement->product_id ? $movement->product?->sku : 'Ingrediente' }}</div>
                                     </td>
                                     <td class="px-4 py-3 text-center">
                                         @if($movement->movement_type === 'in')
