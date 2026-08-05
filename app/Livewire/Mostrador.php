@@ -275,6 +275,9 @@ class Mostrador extends Component
                 'station_color'        => $ps?->color,
                 'sent_at'              => $item->sent_at?->toDateTimeString(),
                 'selected_ingredients' => $selections,
+                // Cuántas unidades ya fueron descontadas del inventario en tiempo real.
+                // Los ítems cargados desde BD tienen 0 (no fueron descontados por el nuevo sistema).
+                'stock_reserved_qty'   => 0,
             ];
         }
     }
@@ -626,6 +629,7 @@ class Mostrador extends Component
                 $this->cart[$idx]['quantity']  = $newQty;
                 $this->cart[$idx]['tax_amount'] = $taxAmt;
                 $this->cart[$idx]['subtotal']  = $subtotal;
+                $this->cart[$idx]['stock_reserved_qty'] = ($this->cart[$idx]['stock_reserved_qty'] ?? 0) + 1;
 
                 CuentaItem::where('id', $this->cart[$idx]['cuenta_item_id'])->update([
                     'quantity'   => $newQty,
@@ -707,6 +711,7 @@ class Mostrador extends Component
             'station_color'          => $ps?->color,
             'sent_at'                => null,
             'selected_ingredients'   => $selections,
+            'stock_reserved_qty'     => 1, // 1 unidad ya descontada del inventario
         ];
 
         // ── Descuento inmediato de inventario al agregar a la mesa ──────────
@@ -766,6 +771,7 @@ class Mostrador extends Component
             $this->cart[$idx]['quantity']  = $newQty;
             $this->cart[$idx]['tax_amount'] = $taxAmt;
             $this->cart[$idx]['subtotal']  = $subtotal;
+            $this->cart[$idx]['stock_reserved_qty'] = ($this->cart[$idx]['stock_reserved_qty'] ?? 0) + 1;
 
             CuentaItem::where('id', $this->cart[$idx]['cuenta_item_id'])->update([
                 'quantity'   => $newQty,
@@ -814,6 +820,7 @@ class Mostrador extends Component
                 'station_icon'           => $ps?->icon,
                 'station_color'          => $ps?->color,
                 'sent_at'                => null,
+                'stock_reserved_qty'     => 1, // 1 unidad ya descontada del inventario
             ];
 
             // Descontar 1 unidad del ingrediente en tiempo real al agregar a la mesa
@@ -873,6 +880,7 @@ class Mostrador extends Component
         $this->cart[$idx]['quantity']   = $newQty;
         $this->cart[$idx]['tax_amount'] = $taxAmt;
         $this->cart[$idx]['subtotal']   = $subtotal;
+        $this->cart[$idx]['stock_reserved_qty'] = ($this->cart[$idx]['stock_reserved_qty'] ?? 0) + 1;
 
         CuentaItem::where('id', $item['cuenta_item_id'])->update([
             'quantity'   => $newQty,
@@ -915,6 +923,7 @@ class Mostrador extends Component
         $newQty   = $item['quantity'] - 1;
         $taxAmt   = round($item['base_price'] * ($item['tax_rate'] / 100) * $newQty, 2);
         $subtotal = round($item['base_price'] * $newQty, 2);
+        $reservedQty = (int) ($item['stock_reserved_qty'] ?? 0);
 
         $this->cart[$idx]['quantity']   = $newQty;
         $this->cart[$idx]['tax_amount'] = $taxAmt;
@@ -926,23 +935,27 @@ class Mostrador extends Component
             'subtotal'   => $subtotal,
         ]);
 
-        // Devolver 1 unidad al inventario en tiempo real al decrementar
-        if ($item['type'] === 'product') {
-            $product = Product::with('ingredients')->find($item['item_id']);
-            if ($product && $product->manages_inventory) {
-                $product->increment('current_stock', 1);
-            }
-            if ($product && $product->product_type === 'compuesto') {
-                foreach ($product->ingredients as $ing) {
-                    if ($ing->manage_inventory) {
-                        $ing->increment('stock', (float) $ing->pivot->quantity);
+        // Solo devolver stock si hay unidades pre-descontadas que superen la nueva cantidad
+        if ($reservedQty > $newQty) {
+            $this->cart[$idx]['stock_reserved_qty'] = $newQty;
+
+            if ($item['type'] === 'product') {
+                $product = Product::with('ingredients')->find($item['item_id']);
+                if ($product && $product->manages_inventory) {
+                    $product->increment('current_stock', 1);
+                }
+                if ($product && $product->product_type === 'compuesto') {
+                    foreach ($product->ingredients as $ing) {
+                        if ($ing->manage_inventory) {
+                            $ing->increment('stock', (float) $ing->pivot->quantity);
+                        }
                     }
                 }
-            }
-        } elseif ($item['type'] === 'ingredient') {
-            $ing = Ingredient::find($item['item_id']);
-            if ($ing && $ing->manage_inventory) {
-                $ing->increment('stock', 1);
+            } elseif ($item['type'] === 'ingredient') {
+                $ing = Ingredient::find($item['item_id']);
+                if ($ing && $ing->manage_inventory) {
+                    $ing->increment('stock', 1);
+                }
             }
         }
     }
@@ -1101,36 +1114,36 @@ class Mostrador extends Component
     {
         if (!isset($this->cart[$idx])) return;
 
-        $item = $this->cart[$idx];
-        $qty  = (float) $item['quantity'];
+        $item        = $this->cart[$idx];
+        // Solo devolver las unidades que realmente fueron pre-descontadas del inventario.
+        // Los ítems cargados desde BD antes de este sistema tienen stock_reserved_qty=0.
+        $reservedQty = (float) ($item['stock_reserved_qty'] ?? 0);
 
-        // Devolver stock al inventario si el ítem no había sido enviado a cocina
-        if (empty($item['sent_at'])) {
+        if ($reservedQty > 0 && empty($item['sent_at'])) {
             if ($item['type'] === 'product') {
                 $product = Product::with('ingredients')->find($item['item_id']);
                 if ($product && $product->manages_inventory) {
-                    $product->increment('current_stock', $qty);
+                    $product->increment('current_stock', $reservedQty);
                 }
                 if ($product && $product->product_type === 'compuesto') {
                     foreach ($product->ingredients as $ing) {
                         if ($ing->manage_inventory) {
-                            $ing->increment('stock', (float) $ing->pivot->quantity * $qty);
+                            $ing->increment('stock', (float) $ing->pivot->quantity * $reservedQty);
                         }
                     }
                 }
-                // Ingredientes elegibles seleccionados
                 if (!empty($item['selected_ingredients'])) {
                     foreach ($item['selected_ingredients'] as $sel) {
                         $selIng = Ingredient::find($sel['ingredient_id']);
                         if ($selIng && $selIng->manage_inventory) {
-                            $selIng->increment('stock', $qty);
+                            $selIng->increment('stock', $reservedQty);
                         }
                     }
                 }
             } elseif ($item['type'] === 'ingredient') {
                 $ing = Ingredient::find($item['item_id']);
                 if ($ing && $ing->manage_inventory) {
-                    $ing->increment('stock', $qty);
+                    $ing->increment('stock', $reservedQty);
                 }
             }
         }
@@ -1484,17 +1497,55 @@ class Mostrador extends Component
                     'total'        => $item['subtotal'] + $item['tax_amount'],
                 ]);
 
-                // Registrar movimiento de inventario para auditoría
-                // (el stock ya fue descontado en tiempo real al agregar/modificar en la mesa)
+                // Manejo de inventario al cobrar:
+                // - Si el ítem fue pre-descontado (stock_reserved_qty > 0): solo registrar auditoría.
+                // - Si stock_reserved_qty == 0 (ítem pre-existente cargado desde BD): descontar ahora.
+                // - Si solo parte fue pre-descontada: descontar la diferencia.
+                $reservedQty = (float) ($item['stock_reserved_qty'] ?? 0);
+                $pendingQty  = max(0, (float) $item['quantity'] - $reservedQty);
+
                 if ($productId) {
-                    $product = Product::find($productId);
+                    $product = Product::with('ingredients')->find($productId);
+
                     if ($product && $product->manages_inventory) {
+                        // Descontar solo las unidades que aún no fueron pre-descontadas
+                        if ($pendingQty > 0) {
+                            $product->decrement('current_stock', $pendingQty);
+                        }
+                        // Siempre registrar el movimiento completo para auditoría
                         InventoryMovement::createMovement(
-                            'sale', $product, 'out', $item['quantity'],
+                            'sale', $product, 'out', (float) $item['quantity'],
                             (float) $item['base_price'],
                             "Venta #{$sale->invoice_number} (Mostrador: {$this->selectedMesaName})",
                             $sale, $this->branchId
                         );
+                    }
+
+                    // Compuesto: descontar ingredientes de receta no pre-reservados
+                    if ($product && $product->product_type === 'compuesto' && $pendingQty > 0) {
+                        foreach ($product->ingredients as $ingredient) {
+                            if ($ingredient->manage_inventory) {
+                                $ingredient->decrement('stock', (float) $ingredient->pivot->quantity * $pendingQty);
+                            }
+                        }
+                    }
+
+                    // Ingredientes elegibles seleccionados no pre-reservados
+                    if ($pendingQty > 0 && !empty($item['selected_ingredients'])) {
+                        foreach ($item['selected_ingredients'] as $sel) {
+                            $selIngredient = Ingredient::find($sel['ingredient_id']);
+                            if ($selIngredient && $selIngredient->manage_inventory) {
+                                $selIngredient->decrement('stock', $pendingQty);
+                            }
+                        }
+                    }
+                }
+
+                // Ingrediente vendido directo no pre-reservado
+                if ($ingredientId && $pendingQty > 0) {
+                    $ingredient = Ingredient::find($ingredientId);
+                    if ($ingredient && $ingredient->manage_inventory) {
+                        $ingredient->decrement('stock', $pendingQty);
                     }
                 }
             }
@@ -1555,19 +1606,22 @@ class Mostrador extends Component
     public function cancelarCuenta(): void
     {
         if ($this->currentCuentaId) {
-            // Devolver stock de los ítems no enviados a cocina
+            // Devolver solo el stock que realmente fue pre-descontado en tiempo real (stock_reserved_qty).
+            // Los ítems cargados desde BD antes del nuevo sistema tienen stock_reserved_qty=0 y no se tocan.
             foreach ($this->cart as $item) {
-                if (!empty($item['sent_at'])) continue; // los enviados ya fueron descontados y se manejan aparte
-                $qty = (float) $item['quantity'];
+                if (!empty($item['sent_at'])) continue; // ítems enviados se manejan por removeSentItem
+                $reservedQty = (float) ($item['stock_reserved_qty'] ?? 0);
+                if ($reservedQty <= 0) continue;
+
                 if ($item['type'] === 'product') {
                     $product = Product::with('ingredients')->find($item['item_id']);
                     if ($product && $product->manages_inventory) {
-                        $product->increment('current_stock', $qty);
+                        $product->increment('current_stock', $reservedQty);
                     }
                     if ($product && $product->product_type === 'compuesto') {
                         foreach ($product->ingredients as $ing) {
                             if ($ing->manage_inventory) {
-                                $ing->increment('stock', (float) $ing->pivot->quantity * $qty);
+                                $ing->increment('stock', (float) $ing->pivot->quantity * $reservedQty);
                             }
                         }
                     }
@@ -1575,14 +1629,14 @@ class Mostrador extends Component
                         foreach ($item['selected_ingredients'] as $sel) {
                             $selIng = Ingredient::find($sel['ingredient_id']);
                             if ($selIng && $selIng->manage_inventory) {
-                                $selIng->increment('stock', $qty);
+                                $selIng->increment('stock', $reservedQty);
                             }
                         }
                     }
                 } elseif ($item['type'] === 'ingredient') {
                     $ing = Ingredient::find($item['item_id']);
                     if ($ing && $ing->manage_inventory) {
-                        $ing->increment('stock', $qty);
+                        $ing->increment('stock', $reservedQty);
                     }
                 }
             }
