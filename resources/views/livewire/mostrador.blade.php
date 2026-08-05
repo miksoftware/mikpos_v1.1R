@@ -577,8 +577,17 @@
                             @endif
 
                             {{-- Stock badge --}}
-                            @if($item['manages_inventory'] && $item['stock'] !== null && $item['stock'] <= 5)
-                            <span class="text-[10px] text-amber-600 mt-0.5">Stock: {{ $item['stock'] }}</span>
+                            @if($item['manages_inventory'] && $item['stock'] !== null)
+                                @if($item['type'] === 'ingredient')
+                                    {{-- Ingredientes: mostrar stock siempre --}}
+                                    <span class="text-[10px] mt-0.5 px-1.5 py-0.5 rounded-full font-medium
+                                        {{ $item['stock'] <= 0 ? 'bg-red-100 text-red-700' : ($item['stock'] <= 5 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700') }}">
+                                        Stock: {{ rtrim(rtrim(number_format((float)$item['stock'], 2), '0'), '.') }}
+                                    </span>
+                                @elseif($item['stock'] <= 5)
+                                    {{-- Productos: solo si stock bajo --}}
+                                    <span class="text-[10px] text-amber-600 mt-0.5">Stock: {{ $item['stock'] }}</span>
+                                @endif
                             @endif
                         </button>
                         @endforeach
