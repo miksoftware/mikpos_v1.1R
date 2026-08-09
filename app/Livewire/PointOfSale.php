@@ -471,6 +471,35 @@ class PointOfSale extends Component
             $this->dispatch('notify', message: 'Stock insuficiente. Disponible: ' . number_format($product->current_stock, 3), type: 'warning');
             return;
         }
+
+        // Check ingredient stock for compuesto products
+        if ($product->product_type === 'compuesto') {
+            $productWithIngredients = Product::with('ingredients')->find($productId);
+            if ($productWithIngredients) {
+                $newQty = $currentQtyInCart + 1;
+                foreach ($productWithIngredients->ingredients as $ingredient) {
+                    if (!$ingredient->manage_inventory) continue;
+                    $neededForThisItem = (float) $ingredient->pivot->quantity * $newQty;
+                    $neededOtherItems = 0.0;
+                    foreach ($this->cart as $key => $row) {
+                        if ($key === $cartKey || empty($row['product_id'])) continue;
+                        $rowProduct = Product::with('ingredients')->find($row['product_id']);
+                        if ($rowProduct && $rowProduct->product_type === 'compuesto') {
+                            foreach ($rowProduct->ingredients as $rowIng) {
+                                if ($rowIng->id === $ingredient->id && $rowIng->manage_inventory) {
+                                    $neededOtherItems += (float) $rowIng->pivot->quantity * (float) $row['quantity'];
+                                }
+                            }
+                        }
+                    }
+                    $totalNeeded = $neededForThisItem + $neededOtherItems;
+                    if ((float) $ingredient->stock < $totalNeeded) {
+                        $this->dispatch('notify', message: "Stock insuficiente para el ingrediente \"{$ingredient->name}\". Requerido: {$totalNeeded}, Disponible: " . number_format($ingredient->stock, 2), type: 'warning');
+                        return;
+                    }
+                }
+            }
+        }
         
         if (isset($this->cart[$cartKey])) {
             $this->cart[$cartKey]['quantity']++;
@@ -1100,12 +1129,43 @@ class PointOfSale extends Component
     public function incrementQuantity($cartKey)
     {
         if (isset($this->cart[$cartKey])) {
+            $item = $this->cart[$cartKey];
             // Check stock limit
-            $maxStock = $this->cart[$cartKey]['max_stock'] ?? PHP_INT_MAX;
-            if ($this->cart[$cartKey]['quantity'] >= $maxStock) {
+            $maxStock = $item['max_stock'] ?? PHP_INT_MAX;
+            if ($item['quantity'] >= $maxStock) {
                 $this->dispatch('notify', message: 'Stock insuficiente. Disponible: ' . number_format($maxStock, 3), type: 'warning');
                 return;
             }
+
+            // Check ingredient stock for compuesto products
+            if (!empty($item['product_id'])) {
+                $product = Product::with('ingredients')->find($item['product_id']);
+                if ($product && $product->product_type === 'compuesto') {
+                    $newQty = $item['quantity'] + 1;
+                    foreach ($product->ingredients as $ingredient) {
+                        if (!$ingredient->manage_inventory) continue;
+                        $neededForThisItem = (float) $ingredient->pivot->quantity * $newQty;
+                        $neededOtherItems = 0.0;
+                        foreach ($this->cart as $key => $row) {
+                            if ($key === $cartKey || empty($row['product_id'])) continue;
+                            $rowProduct = Product::with('ingredients')->find($row['product_id']);
+                            if ($rowProduct && $rowProduct->product_type === 'compuesto') {
+                                foreach ($rowProduct->ingredients as $rowIng) {
+                                    if ($rowIng->id === $ingredient->id && $rowIng->manage_inventory) {
+                                        $neededOtherItems += (float) $rowIng->pivot->quantity * (float) $row['quantity'];
+                                    }
+                                }
+                            }
+                        }
+                        $totalNeeded = $neededForThisItem + $neededOtherItems;
+                        if ((float) $ingredient->stock < $totalNeeded) {
+                            $this->dispatch('notify', message: "Stock insuficiente para el ingrediente \"{$ingredient->name}\". Requerido: {$totalNeeded}, Disponible: " . number_format($ingredient->stock, 2), type: 'warning');
+                            return;
+                        }
+                    }
+                }
+            }
+
             $this->cart[$cartKey]['quantity']++;
             $this->updateCartItemTotals($cartKey);
         }
@@ -1468,20 +1528,34 @@ class PointOfSale extends Component
             }
         }
 
-        // Pre-sale: validate ingredient stock for compuesto products
+        // Pre-sale: validate ingredient stock for compuesto products (aggregated across all cart items)
         $stockErrors = [];
+        $requiredIngredients = [];
+
         foreach ($this->cart as $item) {
             if (empty($item['product_id'])) continue;
             $product = Product::with(['ingredients.unit'])->find($item['product_id']);
             if (!$product || $product->product_type !== 'compuesto') continue;
             foreach ($product->ingredients as $ingredient) {
                 if (!$ingredient->manage_inventory) continue;
-                $needed = (float) $ingredient->pivot->quantity * (float) $item['quantity'];
-                if ((float) $ingredient->stock < $needed) {
-                    $stockErrors[] = "Stock insuficiente para \"{$ingredient->name}\": necesita {$needed}, disponible {$ingredient->stock}";
+                $ingId = $ingredient->id;
+                if (!isset($requiredIngredients[$ingId])) {
+                    $requiredIngredients[$ingId] = [
+                        'name'   => $ingredient->name,
+                        'needed' => 0.0,
+                        'stock'  => (float) $ingredient->stock,
+                    ];
                 }
+                $requiredIngredients[$ingId]['needed'] += (float) $ingredient->pivot->quantity * (float) $item['quantity'];
             }
         }
+
+        foreach ($requiredIngredients as $req) {
+            if ($req['stock'] < $req['needed']) {
+                $stockErrors[] = "Stock insuficiente para \"{$req['name']}\": necesita {$req['needed']}, disponible {$req['stock']}";
+            }
+        }
+
         if (!empty($stockErrors)) {
             $this->dispatch('notify', message: implode(' | ', $stockErrors), type: 'error');
             return;
