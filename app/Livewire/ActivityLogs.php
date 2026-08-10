@@ -86,7 +86,7 @@ class ActivityLogs extends Component
             'module' => $log->module,
             'action' => $log->action,
             'description' => $log->description,
-            'model_type' => $log->model_type ? class_basename($log->model_type) : '-',
+            'model_type' => $log->model_type ? $this->getModelLabel($log->model_type) : '-',
             'model_id' => $log->model_id ?? '-',
             'ip_address' => $log->ip_address ?? '-',
             'user_agent' => $log->user_agent ?? '-',
@@ -118,9 +118,62 @@ class ActivityLogs extends Component
         $this->resetPage();
     }
 
-    private function getActionLabel(string $action): string
+    public function getModuleLabel(string $module): string
     {
-        return match ($action) {
+        return match (strtolower($module)) {
+            'sales' => 'Ventas',
+            'products' => 'Productos',
+            'categories' => 'Categorías',
+            'subcategories' => 'Subcategorías',
+            'brands' => 'Marcas',
+            'colors' => 'Colores',
+            'units' => 'Unidades',
+            'taxes' => 'Impuestos',
+            'tax_documents' => 'Documentos Fiscales',
+            'system_documents' => 'Documentos del Sistema',
+            'suppliers' => 'Proveedores',
+            'customers' => 'Clientes',
+            'combos' => 'Combos',
+            'services' => 'Servicios',
+            'roles' => 'Roles',
+            'users' => 'Usuarios',
+            'branches' => 'Sucursales',
+            'departments' => 'Departamentos',
+            'municipalities' => 'Municipios',
+            'currencies' => 'Monedas',
+            'cash_registers' => 'Cajas Registradoras',
+            'cash_reconciliations' => 'Arqueos de Caja',
+            'inventory_adjustments' => 'Ajustes de Inventario',
+            'inventory_transfers' => 'Transferencias de Inventario',
+            'ingredients' => 'Ingredientes',
+            'expenses' => 'Gastos',
+            'purchases' => 'Compras',
+            'ecommerce_orders' => 'Pedidos Ecommerce',
+            'discounts' => 'Descuentos',
+            'credits' => 'Créditos',
+            'payrolls' => 'Nómina',
+            'employees' => 'Empleados',
+            'print_formats' => 'Formatos de Impresión',
+            'billing_settings' => 'Configuración de Facturación',
+            'product_field_config' => 'Campos de Producto',
+            'product_models' => 'Modelos de Producto',
+            'preparation_stations' => 'Estaciones de Preparación',
+            'payment_methods' => 'Métodos de Pago',
+            'imeis' => 'IMEIs',
+            'sectors' => 'Sectores',
+            'mesas' => 'Mesas',
+            'mostrador' => 'Mostrador',
+            'pos', 'point_of_sale' => 'Punto de Venta',
+            'auth' => 'Autenticación',
+            'migration' => 'Migración',
+            'presentations' => 'Presentaciones',
+            default => ucfirst(str_replace('_', ' ', $module)),
+        };
+    }
+
+    public function getActionLabel(string $action): string
+    {
+        return match (strtolower($action)) {
             'create' => 'Crear',
             'update' => 'Editar',
             'delete' => 'Eliminar',
@@ -129,7 +182,69 @@ class ActivityLogs extends Component
             'logout' => 'Cierre Sesión',
             'toggle_status' => 'Cambio Estado',
             'reprint' => 'Reimpresión',
-            default => ucfirst($action),
+            'open' => 'Apertura',
+            'close' => 'Cierre',
+            'cancel' => 'Cancelación',
+            'complete' => 'Completado',
+            'approve' => 'Aprobación',
+            'reject' => 'Rechazo',
+            'pay' => 'Pago',
+            'adjust' => 'Ajuste',
+            'transfer' => 'Transferencia',
+            'export' => 'Exportación',
+            'import' => 'Importación',
+            default => ucfirst(str_replace('_', ' ', $action)),
+        };
+    }
+
+    public function getModelLabel(?string $modelType): string
+    {
+        if (!$modelType) return '-';
+        $base = class_basename($modelType);
+        return match ($base) {
+            'Sale' => 'Venta',
+            'Product' => 'Producto',
+            'Category' => 'Categoría',
+            'Subcategory' => 'Subcategoría',
+            'Brand' => 'Marca',
+            'Color' => 'Color',
+            'Unit' => 'Unidad',
+            'Tax' => 'Impuesto',
+            'TaxDocument' => 'Documento Fiscal',
+            'SystemDocument' => 'Documento Sistema',
+            'Supplier' => 'Proveedor',
+            'Customer' => 'Cliente',
+            'Combo' => 'Combo',
+            'Service' => 'Servicio',
+            'Role' => 'Rol',
+            'User' => 'Usuario',
+            'Branch' => 'Sucursal',
+            'Department' => 'Departamento',
+            'Municipality' => 'Municipio',
+            'Currency' => 'Moneda',
+            'CashRegister' => 'Caja Registradora',
+            'CashReconciliation' => 'Arqueo de Caja',
+            'InventoryAdjustment' => 'Ajuste de Inventario',
+            'InventoryTransfer' => 'Transferencia de Inventario',
+            'Ingredient' => 'Ingrediente',
+            'Expense' => 'Gasto',
+            'Purchase' => 'Compra',
+            'EcommerceOrder' => 'Pedido Ecommerce',
+            'Discount' => 'Descuento',
+            'Credit' => 'Crédito',
+            'Payroll' => 'Nómina',
+            'Employee' => 'Empleado',
+            'PrintFormat' => 'Formato Impresión',
+            'BillingSetting' => 'Configuración Facturación',
+            'ProductFieldConfig' => 'Campo Producto',
+            'ProductModel' => 'Modelo Producto',
+            'PreparationStation' => 'Estación Preparación',
+            'PaymentMethod' => 'Método Pago',
+            'Imei' => 'IMEI',
+            'Sector' => 'Sector',
+            'Mesa' => 'Mesa',
+            'Presentation' => 'Presentación',
+            default => $base,
         };
     }
 
@@ -218,6 +333,7 @@ class ActivityLogs extends Component
             'modules' => $modules,
             'actions' => $actions,
             'isSuperAdmin' => auth()->user()->isSuperAdmin(),
+            'moduleLabels' => fn($m) => $this->getModuleLabel($m),
             'actionLabels' => fn($a) => $this->getActionLabel($a),
             'actionColors' => fn($a) => $this->getActionColor($a),
         ]);

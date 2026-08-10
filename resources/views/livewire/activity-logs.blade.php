@@ -54,7 +54,7 @@
                 <select wire:model.live="selectedModule" class="w-full px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261] text-sm">
                     <option value="">Todos</option>
                     @foreach($modules as $module)
-                    <option value="{{ $module }}">{{ ucfirst(str_replace('_', ' ', $module)) }}</option>
+                    <option value="{{ $module }}">{{ $moduleLabels($module) }}</option>
                     @endforeach
                 </select>
             </div>
@@ -96,7 +96,7 @@
                         <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">{{ $log->created_at->format('d/m/Y H:i:s') }}</td>
                         <td class="px-4 py-3 text-sm font-medium text-slate-800">{{ $log->user->name ?? 'Sistema' }}</td>
                         <td class="px-4 py-3 text-sm text-slate-600">{{ $log->branch->name ?? '-' }}</td>
-                        <td class="px-4 py-3 text-sm text-slate-600">{{ ucfirst(str_replace('_', ' ', $log->module)) }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-600">{{ $moduleLabels($log->module) }}</td>
                         <td class="px-4 py-3 text-sm text-center">
                             <span class="px-2 py-1 rounded-full text-xs font-medium {{ $actionColors($log->action) }}">
                                 {{ $actionLabels($log->action) }}
@@ -156,15 +156,15 @@
                             </div>
                             <div>
                                 <p class="text-xs text-slate-500">Módulo</p>
-                                <p class="text-sm font-medium text-slate-800">{{ ucfirst(str_replace('_', ' ', $detailLog['module'])) }}</p>
+                                <p class="text-sm font-medium text-slate-800">{{ $moduleLabels($detailLog['module']) }}</p>
                             </div>
                             <div>
                                 <p class="text-xs text-slate-500">Acción</p>
-                                <p class="text-sm font-medium text-slate-800">{{ $detailLog['action'] }}</p>
+                                <p class="text-sm font-medium text-slate-800">{{ $actionLabels($detailLog['action']) }}</p>
                             </div>
                             <div>
                                 <p class="text-xs text-slate-500">Modelo</p>
-                                <p class="text-sm font-medium text-slate-800">{{ $detailLog['model_type'] }} #{{ $detailLog['model_id'] }}</p>
+                                <p class="text-sm font-medium text-slate-800">{{ $detailLog['model_type'] }} @if($detailLog['model_id'] && $detailLog['model_id'] !== '-') #{{ $detailLog['model_id'] }} @endif</p>
                             </div>
                             <div class="col-span-2">
                                 <p class="text-xs text-slate-500">Descripción</p>
