@@ -1695,9 +1695,16 @@ class Mostrador extends Component
             }
 
             // Also update unlinked VTA movements created during this cuenta session
-            InventoryMovement::whereNull('reference_type')
-                ->where('notes', 'like', '%Reserva de comanda%')
-                ->where('notes', 'like', "%{$this->selectedMesaName}%")
+            InventoryMovement::where(function ($q) {
+                    $q->whereNull('reference_type')
+                      ->orWhere('reference_type', CuentaItem::class);
+                })
+                ->where(function ($q) {
+                    $q->where('document_number', 'like', 'VTA-%')
+                      ->orWhere('notes', 'like', '%comanda%')
+                      ->orWhere('notes', 'like', '%Pre-descuento%')
+                      ->orWhere('notes', 'like', '%Reserva%');
+                })
                 ->whereBetween('created_at', [$sale->created_at->subHours(12), $sale->created_at->addMinutes(5)])
                 ->update([
                     'reference_type'  => Sale::class,

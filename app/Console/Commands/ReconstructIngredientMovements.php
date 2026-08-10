@@ -49,7 +49,7 @@ class ReconstructIngredientMovements extends Command
 
                 $cuentaItemIds = CuentaItem::where('cuenta_id', $cuenta->id)->pluck('id')->toArray();
 
-                // Find reservation movements for this cuenta
+                // Find reservation movements for this cuenta (matches VTA-* docs, Pre-descuento, Reserva, comanda notes)
                 $resMovements = InventoryMovement::where(function ($q) use ($cuentaItemIds) {
                         if (!empty($cuentaItemIds)) {
                             $q->where('reference_type', CuentaItem::class)
@@ -57,11 +57,15 @@ class ReconstructIngredientMovements extends Command
                         }
                     })
                     ->orWhere(function ($q) use ($cuenta, $sale) {
-                        $q->whereNull('reference_type')
-                          ->where('notes', 'like', '%Reserva de comanda%')
+                        $q->where(function ($q2) {
+                              $q2->where('document_number', 'like', 'VTA-%')
+                                 ->orWhere('notes', 'like', '%comanda%')
+                                 ->orWhere('notes', 'like', '%Pre-descuento%')
+                                 ->orWhere('notes', 'like', '%Reserva%');
+                          })
                           ->whereBetween('created_at', [
-                              \Carbon\Carbon::parse($cuenta->created_at)->subMinutes(30),
-                              \Carbon\Carbon::parse($sale->created_at)->addMinutes(10)
+                              \Carbon\Carbon::parse($cuenta->created_at)->subHours(12),
+                              \Carbon\Carbon::parse($sale->created_at)->addMinutes(30)
                           ]);
                     })
                     ->get();
@@ -77,14 +81,16 @@ class ReconstructIngredientMovements extends Command
                     }
                 }
 
-                // If reservation movements were linked, delete any duplicate FAC-* movements for the same sale & ingredient
+                // If reservation movements were linked, delete any duplicate FAC-* movements created by previous runs for the same sale & ingredient
                 if ($resMovements->count() > 0) {
-                    foreach ($resMovements as $resM) {
-                        if (!$resM->ingredient_id) continue;
+                    $resIngIds = $resMovements->pluck('ingredient_id')->filter()->unique()->toArray();
+                    $resMovIds = $resMovements->pluck('id')->toArray();
+
+                    foreach ($resIngIds as $ingId) {
                         InventoryMovement::where('reference_type', Sale::class)
                             ->where('reference_id', $sale->id)
-                            ->where('ingredient_id', $resM->ingredient_id)
-                            ->where('id', '!=', $resM->id)
+                            ->where('ingredient_id', $ingId)
+                            ->whereNotIn('id', $resMovIds)
                             ->delete();
                     }
                 }
