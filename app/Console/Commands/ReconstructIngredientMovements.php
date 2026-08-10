@@ -40,6 +40,56 @@ class ReconstructIngredientMovements extends Command
         DB::beginTransaction();
 
         try {
+            // 0. Link live comanda reservation movements (VTA-*) to completed Sales, and remove duplicate FAC-* movements
+            $closedCuentas = Cuenta::where('status', 'cerrada')->whereNotNull('sale_id')->with('sale')->get();
+
+            foreach ($closedCuentas as $cuenta) {
+                if (!$cuenta->sale) continue;
+                $sale = $cuenta->sale;
+
+                $cuentaItemIds = CuentaItem::where('cuenta_id', $cuenta->id)->pluck('id')->toArray();
+
+                // Find reservation movements for this cuenta
+                $resMovements = InventoryMovement::where(function ($q) use ($cuentaItemIds) {
+                        if (!empty($cuentaItemIds)) {
+                            $q->where('reference_type', CuentaItem::class)
+                              ->whereIn('reference_id', $cuentaItemIds);
+                        }
+                    })
+                    ->orWhere(function ($q) use ($cuenta, $sale) {
+                        $q->whereNull('reference_type')
+                          ->where('notes', 'like', '%Reserva de comanda%')
+                          ->whereBetween('created_at', [
+                              \Carbon\Carbon::parse($cuenta->created_at)->subMinutes(30),
+                              \Carbon\Carbon::parse($sale->created_at)->addMinutes(10)
+                          ]);
+                    })
+                    ->get();
+
+                foreach ($resMovements as $m) {
+                    $m->reference_type = Sale::class;
+                    $m->reference_id = $sale->id;
+                    $m->document_number = $sale->invoice_number;
+                    $m->notes = "Venta #{$sale->invoice_number} (Mostrador)";
+                    $m->save();
+                    if ($m->ingredient_id) {
+                        $ingredientsAffected[$m->ingredient_id] = true;
+                    }
+                }
+
+                // If reservation movements were linked, delete any duplicate FAC-* movements for the same sale & ingredient
+                if ($resMovements->count() > 0) {
+                    foreach ($resMovements as $resM) {
+                        if (!$resM->ingredient_id) continue;
+                        InventoryMovement::where('reference_type', Sale::class)
+                            ->where('reference_id', $sale->id)
+                            ->where('ingredient_id', $resM->ingredient_id)
+                            ->where('id', '!=', $resM->id)
+                            ->delete();
+                    }
+                }
+            }
+
             // 1. Process ActivityLogs for Ingredient stock initializations and manual edits
             $ingredientLogs = ActivityLog::where(function ($q) {
                     $q->where('module', 'like', '%ingredient%')

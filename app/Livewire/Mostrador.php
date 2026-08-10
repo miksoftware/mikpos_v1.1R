@@ -1681,6 +1681,31 @@ class Mostrador extends Component
             ]);
             Mesa::where('id', $this->selectedMesaId)->update(['status' => 'libre']);
 
+            // Link any comanda reservation movements (VTA-*) to the completed Sale
+            $cuentaItemIds = CuentaItem::where('cuenta_id', $this->currentCuentaId)->pluck('id')->toArray();
+            if (!empty($cuentaItemIds)) {
+                InventoryMovement::where('reference_type', CuentaItem::class)
+                    ->whereIn('reference_id', $cuentaItemIds)
+                    ->update([
+                        'reference_type'  => Sale::class,
+                        'reference_id'    => $sale->id,
+                        'document_number' => $sale->invoice_number,
+                        'notes'           => "Venta #{$sale->invoice_number} (Mostrador: {$this->selectedMesaName})",
+                    ]);
+            }
+
+            // Also update unlinked VTA movements created during this cuenta session
+            InventoryMovement::whereNull('reference_type')
+                ->where('notes', 'like', '%Reserva de comanda%')
+                ->where('notes', 'like', "%{$this->selectedMesaName}%")
+                ->whereBetween('created_at', [$sale->created_at->subHours(12), $sale->created_at->addMinutes(5)])
+                ->update([
+                    'reference_type'  => Sale::class,
+                    'reference_id'    => $sale->id,
+                    'document_number' => $sale->invoice_number,
+                    'notes'           => "Venta #{$sale->invoice_number} (Mostrador: {$this->selectedMesaName})",
+                ]);
+
             // Mark any remaining kitchen orders of this cuenta as delivered
             KitchenOrder::where('cuenta_id', $this->currentCuentaId)
                 ->whereIn('status', ['pending', 'preparing', 'ready'])
