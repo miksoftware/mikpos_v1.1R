@@ -164,7 +164,12 @@ class Ingredients extends Component
             ]
         );
 
-        $oldValues = $isNew ? null : Ingredient::find($this->itemId)?->toArray();
+        $oldItem = $isNew ? null : Ingredient::find($this->itemId);
+        $oldStock = $oldItem ? (float) ($oldItem->stock ?? 0) : 0;
+        $oldValues = $isNew ? null : $oldItem?->toArray();
+
+        $newStock = $this->manage_inventory && $this->stock !== '' ? (float) $this->stock : 0;
+
         $item = Ingredient::updateOrCreate(['id' => $this->itemId], [
             'name'             => $this->name,
             'unit_id'          => ($this->manage_inventory || !$this->show_in_pos) ? ($this->unit_id ?: null) : null,
@@ -179,6 +184,47 @@ class Ingredients extends Component
             'preparation_station_id' => $this->preparationStationId ?: null,
             'category_id'      => $this->show_in_pos ? ($this->category_id ?: null) : null,
         ]);
+
+        if ($this->manage_inventory) {
+            $diff = $newStock - $oldStock;
+            if ($isNew && $newStock > 0) {
+                $adjustmentDoc = \App\Models\SystemDocument::where('code', 'adjustment')->first();
+                \App\Models\InventoryMovement::create([
+                    'system_document_id' => $adjustmentDoc?->id,
+                    'document_number'    => $adjustmentDoc?->generateNextNumber() ?? ('AJU-' . time()),
+                    'ingredient_id'      => $item->id,
+                    'branch_id'          => auth()->user()->branch_id,
+                    'user_id'            => auth()->id(),
+                    'movement_type'      => 'in',
+                    'quantity'           => $newStock,
+                    'stock_before'       => 0,
+                    'stock_after'        => $newStock,
+                    'unit_cost'          => (float) ($item->purchase_price ?? 0),
+                    'total_cost'         => (float) ($item->purchase_price ?? 0) * $newStock,
+                    'notes'              => 'Carga inicial de stock ingrediente',
+                    'movement_date'      => now()->toDateString(),
+                ]);
+            } elseif (!$isNew && $diff != 0) {
+                $adjustmentDoc = \App\Models\SystemDocument::where('code', 'adjustment')->first();
+                $type = $diff > 0 ? 'in' : 'out';
+                $qty = abs($diff);
+                \App\Models\InventoryMovement::create([
+                    'system_document_id' => $adjustmentDoc?->id,
+                    'document_number'    => $adjustmentDoc?->generateNextNumber() ?? ('AJU-' . time()),
+                    'ingredient_id'      => $item->id,
+                    'branch_id'          => auth()->user()->branch_id,
+                    'user_id'            => auth()->id(),
+                    'movement_type'      => $type,
+                    'quantity'           => $qty,
+                    'stock_before'       => $oldStock,
+                    'stock_after'        => $newStock,
+                    'unit_cost'          => (float) ($item->purchase_price ?? 0),
+                    'total_cost'         => (float) ($item->purchase_price ?? 0) * $qty,
+                    'notes'              => 'Ajuste manual de stock desde ingredientes',
+                    'movement_date'      => now()->toDateString(),
+                ]);
+            }
+        }
 
         if ($isNew) {
             ActivityLogService::logCreate('ingredients', $item, "Ingrediente '{$item->name}' creado");
