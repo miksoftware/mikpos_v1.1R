@@ -294,6 +294,11 @@
                     placeholder="Buscar por nombre, SKU o código de barras...">
             </div>
             <div class="flex flex-wrap gap-3">
+                <select wire:model.live="itemTypeFilter" class="px-3 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261] sm:text-sm min-w-[140px]">
+                    <option value="all">Todos los ítems</option>
+                    <option value="product">Productos</option>
+                    <option value="ingredient">Ingredientes</option>
+                </select>
                 @if($isSuperAdmin)
                 <select wire:model.live="selectedBranchId" class="px-3 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:bg-white focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261] sm:text-sm min-w-[150px]">
                     <option value="">Todas las sucursales</option>
@@ -320,7 +325,7 @@
                     <option value="zero">Sin existencias</option>
                     <option value="negative">Stock negativo</option>
                 </select>
-                @if($search || $stockFilter !== 'all' || $selectedCategoryId || $selectedBrandId || ($isSuperAdmin && $selectedBranchId))
+                @if($search || $itemTypeFilter !== 'all' || $stockFilter !== 'all' || $selectedCategoryId || $selectedBrandId || ($isSuperAdmin && $selectedBranchId))
                 <button wire:click="clearFilters" class="px-3 py-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors text-sm font-medium">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -363,20 +368,25 @@
                                 </div>
                                 @endif
                                 <div>
-                                    <p class="font-medium text-slate-800">{{ $product->name }}</p>
+                                    <div class="flex items-center gap-2">
+                                        <p class="font-medium text-slate-800">{{ $product->name }}</p>
+                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold {{ $product->item_type === 'ingredient' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700' }}">
+                                            {{ $product->type_label }}
+                                        </span>
+                                    </div>
                                     <p class="text-sm text-slate-500">{{ $product->sku }}</p>
                                 </div>
                             </div>
                         </td>
-                        <td class="px-6 py-4 text-slate-600">{{ $product->category?->name ?? '-' }}</td>
-                        <td class="px-6 py-4 text-slate-600">{{ $product->brand?->name ?? '-' }}</td>
+                        <td class="px-6 py-4 text-slate-600">{{ is_object($product->category_name ?? null) ? $product->category_name : ($product->category?->name ?? $product->category_name ?? '-') }}</td>
+                        <td class="px-6 py-4 text-slate-600">{{ is_object($product->brand_name ?? null) ? $product->brand_name : ($product->brand?->name ?? $product->brand_name ?? '-') }}</td>
                         <td class="px-6 py-4 text-center">
                             <span class="inline-flex items-center px-2.5 py-1 rounded-full text-sm font-medium
                                 {{ $product->current_stock > 0 ? 'bg-green-100 text-green-700' : '' }}
                                 {{ $product->current_stock == 0 ? 'bg-amber-100 text-amber-700' : '' }}
                                 {{ $product->current_stock < 0 ? 'bg-red-100 text-red-700' : '' }}
                             ">
-                                {{ $product->current_stock }} {{ $product->unit?->abbreviation ?? 'und' }}
+                                {{ $product->current_stock }} {{ is_object($product->unit ?? null) ? ($product->unit->abbreviation ?? 'und') : ($product->unit_symbol ?? 'und') }}
                             </span>
                         </td>
                         <td class="px-6 py-4 text-right text-slate-600">${{ number_format($product->purchase_price, 2) }}</td>
@@ -391,7 +401,7 @@
                             ${{ number_format($profit, 0) }}
                         </td>
                         <td class="px-6 py-4 text-center">
-                            <button wire:click="viewProductKardex({{ $product->id }})" class="p-2 text-slate-400 hover:text-[#a855f7] hover:bg-[#a855f7]/10 rounded-lg transition-colors" title="Ver Kardex">
+                            <button wire:click="viewProductKardex({{ $product->id }}, '{{ $product->item_type }}')" class="p-2 text-slate-400 hover:text-[#a855f7] hover:bg-[#a855f7]/10 rounded-lg transition-colors" title="Ver Kardex">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
                                 </svg>
@@ -404,8 +414,8 @@
                             <svg class="w-12 h-12 text-slate-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
                             </svg>
-                            <p class="text-slate-500">No se encontraron productos</p>
-                            @if($search || $stockFilter !== 'all' || $selectedCategoryId || $selectedBrandId)
+                            <p class="text-slate-500">No se encontraron productos ni ingredientes</p>
+                            @if($search || $itemTypeFilter !== 'all' || $stockFilter !== 'all' || $selectedCategoryId || $selectedBrandId)
                             <button wire:click="clearFilters" class="mt-2 text-[#ff7261] hover:underline text-sm">Limpiar filtros</button>
                             @endif
                         </td>
@@ -443,15 +453,20 @@
                             </div>
                             @endif
                             <div>
-                                <h3 class="text-lg font-bold text-slate-900">{{ $selectedProduct->name }}</h3>
-                                <p class="text-sm text-slate-500">{{ $selectedProduct->sku }} · {{ $selectedProduct->category?->name ?? 'Sin categoría' }}</p>
+                                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+                                    {{ $selectedProduct->name }}
+                                    <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold {{ $selectedProduct->item_type === 'ingredient' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700' }}">
+                                        {{ $selectedProduct->type_label }}
+                                    </span>
+                                </h3>
+                                <p class="text-sm text-slate-500">{{ $selectedProduct->sku }} · {{ is_object($selectedProduct->category ?? null) ? ($selectedProduct->category->name ?? 'Sin categoría') : ($selectedProduct->category_name ?? 'Sin categoría') }}</p>
                             </div>
                         </div>
                         <div class="flex items-center gap-4">
                             <div class="text-right">
                                 <p class="text-sm text-slate-500">Stock Actual</p>
                                 <p class="text-2xl font-bold {{ $selectedProduct->current_stock > 0 ? 'text-green-600' : ($selectedProduct->current_stock < 0 ? 'text-red-600' : 'text-amber-600') }}">
-                                    {{ $selectedProduct->current_stock }} {{ $selectedProduct->unit?->abbreviation ?? 'und' }}
+                                    {{ $selectedProduct->current_stock }} {{ is_object($selectedProduct->unit ?? null) ? ($selectedProduct->unit->abbreviation ?? 'und') : ($selectedProduct->unit_symbol ?? 'und') }}
                                 </p>
                             </div>
                             <button wire:click="closeDetailModal" class="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-white/50">

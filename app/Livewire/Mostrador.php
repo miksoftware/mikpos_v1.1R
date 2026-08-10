@@ -647,7 +647,7 @@ class Mostrador extends Component
                     $product->loadMissing('ingredients');
                     foreach ($product->ingredients as $ing) {
                         if ($ing->manage_inventory) {
-                            $ing->decrement('stock', (float) $ing->pivot->quantity);
+                            $this->deductIngredientStock($ing, (float) $ing->pivot->quantity, "Reserva de comanda (Ingrediente de: {$product->name}) – Mesa: {$this->selectedMesaName}");
                         }
                     }
                 }
@@ -728,7 +728,7 @@ class Mostrador extends Component
         if ($product->product_type === 'compuesto') {
             foreach ($product->ingredients as $ing) {
                 if ($ing->manage_inventory) {
-                    $ing->decrement('stock', (float) $ing->pivot->quantity);
+                    $this->deductIngredientStock($ing, (float) $ing->pivot->quantity, "Reserva de comanda (Ingrediente de: {$product->name}) – Mesa: {$this->selectedMesaName}");
                 }
             }
         }
@@ -738,7 +738,7 @@ class Mostrador extends Component
             foreach ($groupSelections as $groupId => $ingredientId) {
                 $selIng = Ingredient::find($ingredientId);
                 if ($selIng && $selIng->manage_inventory) {
-                    $selIng->decrement('stock', 1);
+                    $this->deductIngredientStock($selIng, 1, "Reserva de comanda (Ingrediente opcional de: {$product->name}) – Mesa: {$this->selectedMesaName}");
                 }
             }
         }
@@ -788,7 +788,7 @@ class Mostrador extends Component
 
             // Descontar 1 unidad adicional del ingrediente en tiempo real
             if ($ingredient->manage_inventory) {
-                $ingredient->decrement('stock', 1);
+                $this->deductIngredientStock($ingredient, 1, "Reserva de comanda – Mesa: {$this->selectedMesaName}");
             }
         } else {
             $taxAmt  = round($basePrice * $taxRate, 2);
@@ -832,7 +832,7 @@ class Mostrador extends Component
 
             // Descontar 1 unidad del ingrediente en tiempo real al agregar a la mesa
             if ($ingredient->manage_inventory) {
-                $ingredient->decrement('stock', 1);
+                $this->deductIngredientStock($ingredient, 1, "Reserva de comanda – Mesa: {$this->selectedMesaName}");
             }
         }
     }
@@ -911,7 +911,7 @@ class Mostrador extends Component
             if ($product && $product->product_type === 'compuesto') {
                 foreach ($product->ingredients as $ing) {
                     if ($ing->manage_inventory) {
-                        $ing->decrement('stock', (float) $ing->pivot->quantity);
+                        $this->deductIngredientStock($ing, (float) $ing->pivot->quantity, "Pre-descuento comanda (Ingrediente de: {$product->name}) – Mesa: {$this->selectedMesaName}");
                     }
                 }
             }
@@ -919,14 +919,14 @@ class Mostrador extends Component
                 foreach ($item['selected_ingredients'] as $sel) {
                     $selIng = Ingredient::find($sel['ingredient_id']);
                     if ($selIng && $selIng->manage_inventory) {
-                        $selIng->decrement('stock', 1);
+                        $this->deductIngredientStock($selIng, 1, "Pre-descuento comanda (Ingrediente opcional) – Mesa: {$this->selectedMesaName}");
                     }
                 }
             }
         } elseif ($item['type'] === 'ingredient') {
             $ing = Ingredient::find($item['item_id']);
             if ($ing && $ing->manage_inventory) {
-                $ing->decrement('stock', 1);
+                $this->deductIngredientStock($ing, 1, "Pre-descuento comanda – Mesa: {$this->selectedMesaName}");
             }
         }
     }
@@ -969,7 +969,7 @@ class Mostrador extends Component
                 if ($product && $product->product_type === 'compuesto') {
                     foreach ($product->ingredients as $ing) {
                         if ($ing->manage_inventory) {
-                            $ing->increment('stock', (float) $ing->pivot->quantity);
+                            $this->restoreIngredientStock($ing, (float) $ing->pivot->quantity, "Ajuste comanda (Ingrediente de: {$product->name}) – Mesa: {$this->selectedMesaName}");
                         }
                     }
                 }
@@ -977,14 +977,14 @@ class Mostrador extends Component
                     foreach ($item['selected_ingredients'] as $sel) {
                         $selIng = Ingredient::find($sel['ingredient_id']);
                         if ($selIng && $selIng->manage_inventory) {
-                            $selIng->increment('stock', 1);
+                            $this->restoreIngredientStock($selIng, 1, "Ajuste comanda (Ingrediente opcional) – Mesa: {$this->selectedMesaName}");
                         }
                     }
                 }
             } elseif ($item['type'] === 'ingredient') {
                 $ing = Ingredient::find($item['item_id']);
                 if ($ing && $ing->manage_inventory) {
-                    $ing->increment('stock', 1);
+                    $this->restoreIngredientStock($ing, 1, "Ajuste comanda – Mesa: {$this->selectedMesaName}");
                 }
             }
         }
@@ -1158,7 +1158,7 @@ class Mostrador extends Component
                 if ($product && $product->product_type === 'compuesto') {
                     foreach ($product->ingredients as $ing) {
                         if ($ing->manage_inventory) {
-                            $ing->increment('stock', (float) $ing->pivot->quantity * $reservedQty);
+                            $this->restoreIngredientStock($ing, (float) $ing->pivot->quantity * $reservedQty, "Cancelación comanda (Ingrediente de: {$product->name}) – Mesa: {$this->selectedMesaName}");
                         }
                     }
                 }
@@ -1166,14 +1166,14 @@ class Mostrador extends Component
                     foreach ($item['selected_ingredients'] as $sel) {
                         $selIng = Ingredient::find($sel['ingredient_id']);
                         if ($selIng && $selIng->manage_inventory) {
-                            $selIng->increment('stock', $reservedQty);
+                            $this->restoreIngredientStock($selIng, $reservedQty, "Cancelación comanda (Ingrediente opcional) – Mesa: {$this->selectedMesaName}");
                         }
                     }
                 }
             } elseif ($item['type'] === 'ingredient') {
                 $ing = Ingredient::find($item['item_id']);
                 if ($ing && $ing->manage_inventory) {
-                    $ing->increment('stock', $reservedQty);
+                    $this->restoreIngredientStock($ing, $reservedQty, "Cancelación comanda – Mesa: {$this->selectedMesaName}");
                 }
             }
         }
@@ -1632,7 +1632,8 @@ class Mostrador extends Component
                     if ($product && $product->product_type === 'compuesto' && $pendingQty > 0) {
                         foreach ($product->ingredients as $ingredient) {
                             if ($ingredient->manage_inventory) {
-                                $ingredient->decrement('stock', (float) $ingredient->pivot->quantity * $pendingQty);
+                                $deductQty = (float) $ingredient->pivot->quantity * $pendingQty;
+                                $this->deductIngredientStock($ingredient, $deductQty, "Venta #{$sale->invoice_number} (Ingrediente de: {$product->name})", $sale);
                             }
                         }
                     }
@@ -1642,7 +1643,7 @@ class Mostrador extends Component
                         foreach ($item['selected_ingredients'] as $sel) {
                             $selIngredient = Ingredient::find($sel['ingredient_id']);
                             if ($selIngredient && $selIngredient->manage_inventory) {
-                                $selIngredient->decrement('stock', $pendingQty);
+                                $this->deductIngredientStock($selIngredient, $pendingQty, "Venta #{$sale->invoice_number} (Ingrediente opcional)", $sale);
                             }
                         }
                     }
@@ -1652,7 +1653,7 @@ class Mostrador extends Component
                 if ($ingredientId && $pendingQty > 0) {
                     $ingredient = Ingredient::find($ingredientId);
                     if ($ingredient && $ingredient->manage_inventory) {
-                        $ingredient->decrement('stock', $pendingQty);
+                        $this->deductIngredientStock($ingredient, $pendingQty, "Venta #{$sale->invoice_number}", $sale);
                     }
                 }
             }
@@ -1728,7 +1729,7 @@ class Mostrador extends Component
                     if ($product && $product->product_type === 'compuesto') {
                         foreach ($product->ingredients as $ing) {
                             if ($ing->manage_inventory) {
-                                $ing->increment('stock', (float) $ing->pivot->quantity * $reservedQty);
+                                $this->restoreIngredientStock($ing, (float) $ing->pivot->quantity * $reservedQty, "Cancelación cuenta (Ingrediente de: {$product->name}) – Mesa: {$this->selectedMesaName}");
                             }
                         }
                     }
@@ -1736,14 +1737,14 @@ class Mostrador extends Component
                         foreach ($item['selected_ingredients'] as $sel) {
                             $selIng = Ingredient::find($sel['ingredient_id']);
                             if ($selIng && $selIng->manage_inventory) {
-                                $selIng->increment('stock', $reservedQty);
+                                $this->restoreIngredientStock($selIng, $reservedQty, "Cancelación cuenta (Ingrediente opcional) – Mesa: {$this->selectedMesaName}");
                             }
                         }
                     }
                 } elseif ($item['type'] === 'ingredient') {
                     $ing = Ingredient::find($item['item_id']);
                     if ($ing && $ing->manage_inventory) {
-                        $ing->increment('stock', $reservedQty);
+                        $this->restoreIngredientStock($ing, $reservedQty, "Cancelación cuenta – Mesa: {$this->selectedMesaName}");
                     }
                 }
             }
@@ -2106,6 +2107,38 @@ class Mostrador extends Component
         $this->splitQty = [];
         $this->splitPayments = [['method_id' => null, 'amount' => 0]];
         $this->splitNotes = '';
+    }
+
+    private function deductIngredientStock(Ingredient $ingredient, float $quantity, string $reason, ?\Illuminate\Database\Eloquent\Model $reference = null): void
+    {
+        if (!$ingredient->manage_inventory || $quantity <= 0) return;
+        InventoryMovement::createIngredientMovement(
+            'sale',
+            $ingredient,
+            'out',
+            $quantity,
+            (float) ($ingredient->purchase_price ?? 0),
+            $reason,
+            $reference,
+            $this->branchId
+        );
+        $ingredient->decrement('stock', $quantity);
+    }
+
+    private function restoreIngredientStock(Ingredient $ingredient, float $quantity, string $reason, ?\Illuminate\Database\Eloquent\Model $reference = null): void
+    {
+        if (!$ingredient->manage_inventory || $quantity <= 0) return;
+        InventoryMovement::createIngredientMovement(
+            'adjustment',
+            $ingredient,
+            'in',
+            $quantity,
+            (float) ($ingredient->purchase_price ?? 0),
+            $reason,
+            $reference,
+            $this->branchId
+        );
+        $ingredient->increment('stock', $quantity);
     }
 
     // ─── Render ───────────────────────────────────────────────────────────────

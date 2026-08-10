@@ -14,6 +14,7 @@ use App\Models\CashMovement;
 use App\Models\CashRegister;
 use App\Models\InventoryMovement;
 use App\Models\Product;
+use App\Models\Ingredient;
 use App\Models\Customer;
 use App\Models\PaymentMethod;
 use App\Models\SaleItem;
@@ -356,7 +357,7 @@ class Sales extends Component
             // Return inventory for credit note items
             foreach ($this->creditNoteItems as $item) {
                 if (!empty($item['selected']) && $item['quantity'] > 0 && !empty($item['product_id'])) {
-                    $product = Product::find($item['product_id']);
+                    $product = Product::with('ingredients')->find($item['product_id']);
                     if ($product) {
                         InventoryMovement::createMovement(
                             'refund',
@@ -370,6 +371,25 @@ class Sales extends Component
                         );
 
                         $product->increment('current_stock', (float) $item['quantity']);
+
+                        if ($product->product_type === 'compuesto') {
+                            foreach ($product->ingredients as $ingredient) {
+                                if ($ingredient->manage_inventory) {
+                                    $toReturn = (float) $ingredient->pivot->quantity * (float) $item['quantity'];
+                                    InventoryMovement::createIngredientMovement(
+                                        'refund',
+                                        $ingredient,
+                                        'in',
+                                        $toReturn,
+                                        (float) $ingredient->purchase_price,
+                                        "Nota Crédito {$creditNote->number} (Ingrediente de: {$product->name})",
+                                        $creditNote,
+                                        $sale->branch_id
+                                    );
+                                    $ingredient->increment('stock', $toReturn);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -629,7 +649,7 @@ class Sales extends Component
             // Return inventory for refunded products
             foreach ($this->refundItems as $item) {
                 if (!empty($item['selected']) && $item['quantity'] > 0 && !empty($item['product_id'])) {
-                    $product = Product::find($item['product_id']);
+                    $product = Product::with('ingredients')->find($item['product_id']);
                     if ($product) {
                         InventoryMovement::createMovement(
                             'refund',
@@ -643,6 +663,25 @@ class Sales extends Component
                         );
 
                         $product->increment('current_stock', (float) $item['quantity']);
+
+                        if ($product->product_type === 'compuesto') {
+                            foreach ($product->ingredients as $ingredient) {
+                                if ($ingredient->manage_inventory) {
+                                    $toReturn = (float) $ingredient->pivot->quantity * (float) $item['quantity'];
+                                    InventoryMovement::createIngredientMovement(
+                                        'refund',
+                                        $ingredient,
+                                        'in',
+                                        $toReturn,
+                                        (float) $ingredient->purchase_price,
+                                        "Devolución {$refund->number} (Ingrediente de: {$product->name})",
+                                        $refund,
+                                        $sale->branch_id
+                                    );
+                                    $ingredient->increment('stock', $toReturn);
+                                }
+                            }
+                        }
                     }
                 }
             }

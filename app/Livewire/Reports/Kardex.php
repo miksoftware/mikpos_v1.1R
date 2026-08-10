@@ -5,11 +5,13 @@ namespace App\Livewire\Reports;
 use Livewire\Component;
 use Livewire\WithPagination;
 use App\Models\Product;
+use App\Models\Ingredient;
 use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Brand;
 use App\Models\InventoryMovement;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Livewire\Attributes\Layout;
 
 #[Layout('layouts.app')]
@@ -21,6 +23,7 @@ class Kardex extends Component
     public ?int $selectedBranchId = null;
     public ?int $selectedCategoryId = null;
     public ?int $selectedBrandId = null;
+    public string $itemTypeFilter = 'all'; // all, product, ingredient
     public string $stockFilter = 'all'; // all, zero, positive, negative
     public string $search = '';
     public ?string $dateFrom = null;
@@ -42,7 +45,8 @@ class Kardex extends Component
     public array $lowStockProducts = [];
 
     // Detail view
-    public ?int $selectedProductId = null;
+    public ?int $selectedItemId = null;
+    public string $selectedItemType = 'product'; // product or ingredient
     public array $productMovements = [];
     public bool $isDetailModalOpen = false;
 
@@ -52,168 +56,221 @@ class Kardex extends Component
         if (!$user->isSuperAdmin() && $user->branch_id) {
             $this->selectedBranchId = $user->branch_id;
         }
-        
-        // No default date filter - show all data from the beginning
+
         $this->dateFrom = null;
         $this->dateTo = null;
     }
 
-    private function getBaseQuery()
+    private function getItemsQuery()
     {
-        $query = Product::query()->where('is_active', true);
+        $productItems = collect();
+        if (in_array($this->itemTypeFilter, ['all', 'product'])) {
+            $pQuery = Product::query()->where('is_active', true);
 
-        if ($this->selectedBranchId) {
-            $query->where('branch_id', $this->selectedBranchId);
-        } elseif (!auth()->user()->isSuperAdmin()) {
-            $query->where('branch_id', auth()->user()->branch_id);
-        }
+            if ($this->selectedBranchId) {
+                $pQuery->where('branch_id', $this->selectedBranchId);
+            } elseif (!auth()->user()->isSuperAdmin()) {
+                $pQuery->where('branch_id', auth()->user()->branch_id);
+            }
 
-        if ($this->selectedCategoryId) {
-            $query->where('category_id', $this->selectedCategoryId);
-        }
+            if ($this->selectedCategoryId) {
+                $pQuery->where('category_id', $this->selectedCategoryId);
+            }
 
-        if ($this->selectedBrandId) {
-            $query->where('brand_id', $this->selectedBrandId);
-        }
+            if ($this->selectedBrandId) {
+                $pQuery->where('brand_id', $this->selectedBrandId);
+            }
 
-        if ($this->search) {
-            $query->where(function ($q) {
-                $q->where('name', 'like', "%{$this->search}%")
-                  ->orWhere('sku', 'like', "%{$this->search}%")
-                  ->orWhere('barcode', 'like', "%{$this->search}%");
+            if ($this->search) {
+                $search = trim($this->search);
+                $pQuery->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                      ->orWhere('sku', 'like', "%{$search}%")
+                      ->orWhere('barcode', 'like', "%{$search}%");
+                });
+            }
+
+            switch ($this->stockFilter) {
+                case 'zero':
+                    $pQuery->where('current_stock', 0);
+                    break;
+                case 'positive':
+                    $pQuery->where('current_stock', '>', 0);
+                    break;
+                case 'negative':
+                    $pQuery->where('current_stock', '<', 0);
+                    break;
+            }
+
+            $productItems = $pQuery->with(['category', 'brand', 'unit'])->get()->map(function ($p) {
+                $stock = (float) ($p->current_stock ?? 0);
+                $purchasePrice = (float) ($p->purchase_price ?? 0);
+                $salePrice = (float) ($p->sale_price ?? 0);
+                return (object) [
+                    'id' => $p->id,
+                    'item_type' => 'product',
+                    'type_label' => 'Producto',
+                    'name' => $p->name,
+                    'sku' => $p->sku ?: '-',
+                    'category_name' => $p->category?->name ?? '-',
+                    'brand_name' => $p->brand?->name ?? '-',
+                    'unit_symbol' => $p->unit?->abbreviation ?? 'und',
+                    'current_stock' => $stock,
+                    'purchase_price' => $purchasePrice,
+                    'sale_price' => $salePrice,
+                    'inventory_value' => $stock * $salePrice,
+                    'profit' => ($salePrice - $purchasePrice) * $stock,
+                    'image' => $p->image,
+                    'min_stock' => (float) ($p->min_stock ?? 0),
+                ];
             });
         }
 
-        // Stock filter
-        switch ($this->stockFilter) {
-            case 'zero':
-                $query->where('current_stock', 0);
-                break;
-            case 'positive':
-                $query->where('current_stock', '>', 0);
-                break;
-            case 'negative':
-                $query->where('current_stock', '<', 0);
-                break;
+        $ingredientItems = collect();
+        if (in_array($this->itemTypeFilter, ['all', 'ingredient'])) {
+            $iQuery = Ingredient::query()->where('is_active', true);
+
+            if ($this->selectedCategoryId) {
+                $iQuery->where('category_id', $this->selectedCategoryId);
+            }
+
+            // Ingredients do not have brand, skip if brand filter selected
+            if ($this->selectedBrandId) {
+                $iQuery->whereRaw('1 = 0');
+            }
+
+            if ($this->search) {
+                $search = trim($this->search);
+                $iQuery->where('name', 'like', "%{$search}%");
+            }
+
+            switch ($this->stockFilter) {
+                case 'zero':
+                    $iQuery->where('stock', 0);
+                    break;
+                case 'positive':
+                    $iQuery->where('stock', '>', 0);
+                    break;
+                case 'negative':
+                    $iQuery->where('stock', '<', 0);
+                    break;
+            }
+
+            $ingredientItems = $iQuery->with(['category', 'unit'])->get()->map(function ($i) {
+                $stock = (float) ($i->stock ?? 0);
+                $purchasePrice = (float) ($i->purchase_price ?? 0);
+                $salePrice = (float) ($i->sale_price ?? 0);
+                return (object) [
+                    'id' => $i->id,
+                    'item_type' => 'ingredient',
+                    'type_label' => 'Ingrediente',
+                    'name' => $i->name,
+                    'sku' => 'ING-' . str_pad($i->id, 4, '0', STR_PAD_LEFT),
+                    'category_name' => $i->category?->name ?? '-',
+                    'brand_name' => '-',
+                    'unit_symbol' => $i->unit?->abbreviation ?? 'und',
+                    'current_stock' => $stock,
+                    'purchase_price' => $purchasePrice,
+                    'sale_price' => $salePrice,
+                    'inventory_value' => $stock * $salePrice,
+                    'profit' => ($salePrice - $purchasePrice) * $stock,
+                    'image' => null,
+                    'min_stock' => 0,
+                ];
+            });
         }
 
-        return $query;
+        return $productItems->concat($ingredientItems)->sortBy('name')->values();
     }
 
     private function calculateSummary()
     {
-        $baseQuery = Product::query()->where('is_active', true);
+        $all = $this->getItemsQuery();
 
-        if ($this->selectedBranchId) {
-            $baseQuery->where('branch_id', $this->selectedBranchId);
-        } elseif (!auth()->user()->isSuperAdmin()) {
-            $baseQuery->where('branch_id', auth()->user()->branch_id);
-        }
+        $this->totalProducts = $all->count();
+        $this->productsWithStock = $all->where('current_stock', '>', 0)->count();
+        $this->productsZeroStock = $all->where('current_stock', '==', 0)->count();
+        $this->productsNegativeStock = $all->where('current_stock', '<', 0)->count();
 
-        if ($this->selectedCategoryId) {
-            $baseQuery->where('category_id', $this->selectedCategoryId);
-        }
-
-        if ($this->selectedBrandId) {
-            $baseQuery->where('brand_id', $this->selectedBrandId);
-        }
-
-        $this->totalProducts = (clone $baseQuery)->count();
-        $this->productsWithStock = (clone $baseQuery)->where('current_stock', '>', 0)->count();
-        $this->productsZeroStock = (clone $baseQuery)->where('current_stock', 0)->count();
-        $this->productsNegativeStock = (clone $baseQuery)->where('current_stock', '<', 0)->count();
-
-        // Calculate inventory value (sale price * stock)
-        $this->totalInventoryValue = (clone $baseQuery)
-            ->where('current_stock', '>', 0)
-            ->selectRaw('SUM(current_stock * sale_price) as total')
-            ->value('total') ?? 0;
-
-        // Calculate inventory cost (purchase price * stock)
-        $this->totalInventoryCost = (clone $baseQuery)
-            ->where('current_stock', '>', 0)
-            ->selectRaw('SUM(current_stock * purchase_price) as total')
-            ->value('total') ?? 0;
-
-        // Calculate potential profit (value - cost)
+        $this->totalInventoryValue = $all->where('current_stock', '>', 0)->sum('inventory_value');
+        $this->totalInventoryCost = $all->where('current_stock', '>', 0)->sum(function ($item) {
+            return $item->current_stock * $item->purchase_price;
+        });
         $this->totalPotentialProfit = $this->totalInventoryValue - $this->totalInventoryCost;
     }
 
     private function loadChartData()
     {
-        $baseQuery = Product::query()->where('products.is_active', true);
-
-        if ($this->selectedBranchId) {
-            $baseQuery->where('products.branch_id', $this->selectedBranchId);
-        } elseif (!auth()->user()->isSuperAdmin()) {
-            $baseQuery->where('products.branch_id', auth()->user()->branch_id);
-        }
-
-        if ($this->selectedCategoryId) {
-            $baseQuery->where('products.category_id', $this->selectedCategoryId);
-        }
-
-        if ($this->selectedBrandId) {
-            $baseQuery->where('products.brand_id', $this->selectedBrandId);
-        }
+        $all = $this->getItemsQuery();
 
         // Stock by category
-        $this->stockByCategory = (clone $baseQuery)
-            ->leftJoin('categories', 'products.category_id', '=', 'categories.id')
-            ->select(
-                DB::raw("COALESCE(categories.name, 'Sin categoría') as category_name"),
-                DB::raw('SUM(products.current_stock) as total_stock'),
-                DB::raw('COUNT(products.id) as product_count')
-            )
-            ->groupBy('categories.id', 'categories.name')
-            ->orderByDesc('total_stock')
-            ->limit(8)
-            ->get()
-            ->toArray();
+        $byCat = [];
+        foreach ($all as $item) {
+            $cat = $item->category_name;
+            if (!isset($byCat[$cat])) {
+                $byCat[$cat] = ['category_name' => $cat, 'total_stock' => 0, 'product_count' => 0];
+            }
+            $byCat[$cat]['total_stock'] += $item->current_stock;
+            $byCat[$cat]['product_count']++;
+        }
+        usort($byCat, fn($a, $b) => $b['total_stock'] <=> $a['total_stock']);
+        $this->stockByCategory = array_slice($byCat, 0, 8);
 
-        // Stock distribution (pie chart data)
+        // Stock distribution
         $this->stockDistribution = [
             ['label' => 'Con existencias', 'value' => $this->productsWithStock, 'color' => '#22c55e'],
             ['label' => 'Sin existencias', 'value' => $this->productsZeroStock, 'color' => '#f59e0b'],
             ['label' => 'Stock negativo', 'value' => $this->productsNegativeStock, 'color' => '#ef4444'],
         ];
 
-        // Top 10 products by inventory value
-        $this->topValueProducts = (clone $baseQuery)
-            ->where('products.current_stock', '>', 0)
-            ->select(
-                'products.id',
-                'products.name',
-                'products.sku',
-                'products.current_stock',
-                'products.sale_price',
-                DB::raw('(products.current_stock * products.sale_price) as inventory_value')
-            )
-            ->orderByDesc('inventory_value')
-            ->limit(10)
-            ->get()
+        // Top 10 by inventory value
+        $this->topValueProducts = $all->where('current_stock', '>', 0)
+            ->sortByDesc('inventory_value')
+            ->take(10)
+            ->map(function ($item) {
+                return [
+                    'id' => $item->id,
+                    'item_type' => $item->item_type,
+                    'name' => $item->name,
+                    'sku' => $item->sku,
+                    'current_stock' => $item->current_stock,
+                    'sale_price' => $item->sale_price,
+                    'inventory_value' => $item->inventory_value,
+                ];
+            })
+            ->values()
             ->toArray();
 
-        // Low stock products (at or below min_stock)
-        $this->lowStockProducts = (clone $baseQuery)
-            ->whereColumn('products.current_stock', '<=', 'products.min_stock')
-            ->where('products.min_stock', '>', 0)
-            ->select(
-                'products.id',
-                'products.name',
-                'products.sku',
-                'products.current_stock',
-                'products.min_stock'
-            )
-            ->orderBy('products.current_stock')
-            ->limit(10)
-            ->get()
-            ->toArray();
+        // Low stock products/ingredients
+        $this->lowStockProducts = $all->filter(function ($item) {
+            if ($item->item_type === 'product' && $item->min_stock > 0) {
+                return $item->current_stock <= $item->min_stock;
+            }
+            if ($item->item_type === 'ingredient') {
+                return $item->current_stock <= 5;
+            }
+            return false;
+        })
+        ->sortBy('current_stock')
+        ->take(10)
+        ->map(function ($item) {
+            return [
+                'id' => $item->id,
+                'item_type' => $item->item_type,
+                'name' => $item->name,
+                'sku' => $item->sku,
+                'current_stock' => $item->current_stock,
+                'min_stock' => $item->min_stock,
+            ];
+        })
+        ->values()
+        ->toArray();
     }
 
-    public function viewProductKardex(int $productId)
+    public function viewProductKardex(int $id, string $type = 'product')
     {
-        $this->selectedProductId = $productId;
+        $this->selectedItemId = $id;
+        $this->selectedItemType = $type;
         $this->dateFrom = null;
         $this->dateTo = null;
         $this->loadProductMovements();
@@ -223,55 +280,43 @@ class Kardex extends Component
     public function closeDetailModal()
     {
         $this->isDetailModalOpen = false;
-        $this->selectedProductId = null;
+        $this->selectedItemId = null;
         $this->productMovements = [];
     }
 
-    public function updatedStockFilter()
-    {
-        $this->resetPage();
-    }
-
-    public function updatedSearch()
-    {
-        $this->resetPage();
-    }
-
-    public function updatedSelectedBranchId()
-    {
-        $this->resetPage();
-    }
-
-    public function updatedSelectedCategoryId()
-    {
-        $this->resetPage();
-    }
-
-    public function updatedSelectedBrandId()
-    {
-        $this->resetPage();
-    }
+    public function updatedItemTypeFilter() { $this->resetPage(); }
+    public function updatedStockFilter() { $this->resetPage(); }
+    public function updatedSearch() { $this->resetPage(); }
+    public function updatedSelectedBranchId() { $this->resetPage(); }
+    public function updatedSelectedCategoryId() { $this->resetPage(); }
+    public function updatedSelectedBrandId() { $this->resetPage(); }
 
     public function updatedDateFrom()
     {
-        if ($this->selectedProductId) {
+        if ($this->selectedItemId) {
             $this->loadProductMovements();
         }
     }
 
     public function updatedDateTo()
     {
-        if ($this->selectedProductId) {
+        if ($this->selectedItemId) {
             $this->loadProductMovements();
         }
     }
 
     private function loadProductMovements()
     {
-        $query = InventoryMovement::where('product_id', $this->selectedProductId)
-            ->with(['systemDocument', 'user', 'branch']);
+        if (!$this->selectedItemId) return;
 
-        // Apply date filters
+        if ($this->selectedItemType === 'ingredient') {
+            $query = InventoryMovement::where('ingredient_id', $this->selectedItemId)
+                ->with(['systemDocument', 'user', 'branch']);
+        } else {
+            $query = InventoryMovement::where('product_id', $this->selectedItemId)
+                ->with(['systemDocument', 'user', 'branch']);
+        }
+
         if ($this->dateFrom) {
             $query->whereDate('created_at', '>=', $this->dateFrom);
         }
@@ -284,7 +329,6 @@ class Kardex extends Component
             ->limit(100)
             ->get()
             ->map(function ($movement) {
-                // Resolve invoice number from reference
                 $invoiceNumber = null;
                 $receiptUrl = null;
                 if ($movement->reference_type === 'App\\Models\\Sale' && $movement->reference_id) {
@@ -330,6 +374,7 @@ class Kardex extends Component
     public function clearFilters()
     {
         $this->search = '';
+        $this->itemTypeFilter = 'all';
         $this->stockFilter = 'all';
         $this->selectedCategoryId = null;
         $this->selectedBrandId = null;
@@ -349,19 +394,58 @@ class Kardex extends Component
         $this->calculateSummary();
         $this->loadChartData();
 
-        $products = $this->getBaseQuery()
-            ->with(['category', 'brand', 'unit'])
-            ->orderBy('name')
-            ->paginate(15);
+        $allCollection = $this->getItemsQuery();
+        $currentPage = LengthAwarePaginator::resolveCurrentPage() ?: 1;
+        $perPage = 15;
+        $pageItems = $allCollection->slice(($currentPage - 1) * $perPage, $perPage)->values();
+
+        $products = new LengthAwarePaginator(
+            $pageItems,
+            $allCollection->count(),
+            $perPage,
+            $currentPage,
+            ['path' => LengthAwarePaginator::resolveCurrentPath()]
+        );
 
         $branches = $isSuperAdmin ? Branch::where('is_active', true)->orderBy('name')->get() : collect();
         $categories = Category::where('is_active', true)->orderBy('name')->get();
         $brands = Brand::where('is_active', true)->orderBy('name')->get();
 
-        // Get selected product for modal
-        $selectedProduct = $this->selectedProductId 
-            ? Product::with(['category', 'brand', 'unit'])->find($this->selectedProductId)
-            : null;
+        // Selected item for modal
+        $selectedProduct = null;
+        if ($this->selectedItemId) {
+            if ($this->selectedItemType === 'ingredient') {
+                $ing = Ingredient::with(['category', 'unit'])->find($this->selectedItemId);
+                if ($ing) {
+                    $selectedProduct = (object) [
+                        'id' => $ing->id,
+                        'name' => $ing->name,
+                        'sku' => 'ING-' . str_pad($ing->id, 4, '0', STR_PAD_LEFT),
+                        'category' => $ing->category,
+                        'current_stock' => (float) ($ing->stock ?? 0),
+                        'unit' => $ing->unit,
+                        'image' => null,
+                        'item_type' => 'ingredient',
+                        'type_label' => 'Ingrediente',
+                    ];
+                }
+            } else {
+                $prod = Product::with(['category', 'brand', 'unit'])->find($this->selectedItemId);
+                if ($prod) {
+                    $selectedProduct = (object) [
+                        'id' => $prod->id,
+                        'name' => $prod->name,
+                        'sku' => $prod->sku ?: '-',
+                        'category' => $prod->category,
+                        'current_stock' => (float) ($prod->current_stock ?? 0),
+                        'unit' => $prod->unit,
+                        'image' => $prod->image,
+                        'item_type' => 'product',
+                        'type_label' => 'Producto',
+                    ];
+                }
+            }
+        }
 
         return view('livewire.reports.kardex', [
             'products' => $products,

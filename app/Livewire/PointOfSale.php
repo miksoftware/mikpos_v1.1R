@@ -1646,6 +1646,16 @@ class PointOfSale extends Component
                         foreach ($productWithIngredients->ingredients as $ingredient) {
                             if ($ingredient->manage_inventory) {
                                 $totalDeduct = (float) $ingredient->pivot->quantity * (float) $item['quantity'];
+                                InventoryMovement::createIngredientMovement(
+                                    'sale',
+                                    $ingredient,
+                                    'out',
+                                    $totalDeduct,
+                                    (float) $ingredient->purchase_price,
+                                    "Venta #{$sale->invoice_number} (Ingrediente de: {$product->name})",
+                                    $sale,
+                                    $this->branchId
+                                );
                                 $ingredient->decrement('stock', $totalDeduct);
                             }
                         }
