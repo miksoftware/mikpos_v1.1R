@@ -2,21 +2,23 @@
 
 namespace App\Console\Commands;
 
+use App\Models\ActivityLog;
+use App\Models\Cuenta;
+use App\Models\CuentaItem;
 use App\Models\Ingredient;
 use App\Models\InventoryMovement;
 use App\Models\Product;
+use App\Models\Purchase;
 use App\Models\Refund;
 use App\Models\Sale;
 use App\Models\SystemDocument;
-use App\Models\Cuenta;
-use App\Models\CuentaItem;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
 class ReconstructIngredientMovements extends Command
 {
     protected $signature = 'inventory:reconstruct-ingredient-movements {--force : Run without confirmation}';
-    protected $description = 'Reconstruct missing historical inventory movements for ingredients from sales and refunds';
+    protected $description = 'Reconstruct missing historical inventory movements for ingredients from sales, refunds, purchases, and initial stock';
 
     public function handle(): int
     {
@@ -32,26 +34,18 @@ class ReconstructIngredientMovements extends Command
             return 1;
         }
 
-        $sales = Sale::where('status', 'completed')
-            ->with(['items.product.ingredients', 'branch'])
-            ->orderBy('created_at', 'asc')
-            ->get();
-
-        $this->info("Found {$sales->count()} completed sales to analyze.");
-
         $movementsCreated = 0;
         $ingredientsAffected = [];
 
         DB::beginTransaction();
 
         try {
-            // 0. Process ActivityLogs for Ingredient stock initializations and manual edits
-            $ingredientLogs = \App\Models\ActivityLog::where(function ($q) {
-                    $q->where('module', 'ingredients')
-                      ->orWhere('model_type', Ingredient::class)
-                      ->orWhere('model_type', 'ingredients');
+            // 1. Process ActivityLogs for Ingredient stock initializations and manual edits
+            $ingredientLogs = ActivityLog::where(function ($q) {
+                    $q->where('module', 'like', '%ingredient%')
+                      ->orWhere('model_type', 'like', '%Ingredient%');
                 })
-                ->whereIn('action', ['create', 'update'])
+                ->whereIn('action', ['create', 'update', 'created', 'updated', 'stock_change', 'adjust'])
                 ->orderBy('created_at', 'asc')
                 ->get();
 
@@ -59,8 +53,8 @@ class ReconstructIngredientMovements extends Command
                 $ingId = $log->model_id;
                 if (!$ingId) continue;
 
-                $newVal = $log->new_values ?? [];
-                $oldVal = $log->old_values ?? [];
+                $newVal = is_array($log->new_values) ? $log->new_values : json_decode($log->new_values ?? '[]', true);
+                $oldVal = is_array($log->old_values) ? $log->old_values : json_decode($log->old_values ?? '[]', true);
 
                 $newStock = isset($newVal['stock']) && $newVal['stock'] !== '' ? (float) $newVal['stock'] : null;
                 $oldStock = isset($oldVal['stock']) && $oldVal['stock'] !== '' ? (float) $oldVal['stock'] : null;
@@ -70,7 +64,7 @@ class ReconstructIngredientMovements extends Command
                 $qty = 0;
                 $type = 'in';
 
-                if ($log->action === 'create') {
+                if ($log->action === 'create' || $log->action === 'created') {
                     if ($newStock > 0) {
                         $qty = $newStock;
                         $type = 'in';
@@ -93,7 +87,7 @@ class ReconstructIngredientMovements extends Command
 
                 if ($qty <= 0) continue;
 
-                $movement = InventoryMovement::where('reference_type', \App\Models\ActivityLog::class)
+                $movement = InventoryMovement::where('reference_type', ActivityLog::class)
                     ->where('reference_id', $log->id)
                     ->where('ingredient_id', $ingId)
                     ->first();
@@ -111,7 +105,7 @@ class ReconstructIngredientMovements extends Command
                         'stock_after' => 0,
                         'unit_cost' => 0,
                         'total_cost' => 0,
-                        'reference_type' => \App\Models\ActivityLog::class,
+                        'reference_type' => ActivityLog::class,
                         'reference_id' => $log->id,
                         'notes' => "Ajuste / Carga inicial de ingrediente (Log #{$log->id})",
                         'movement_date' => $log->created_at->toDateString(),
@@ -129,8 +123,8 @@ class ReconstructIngredientMovements extends Command
                 $ingredientsAffected[$ingId] = true;
             }
 
-            // 1. Process Purchases for ingredients
-            $purchases = \App\Models\Purchase::where('status', 'completed')
+            // 2. Process Purchases for ingredients
+            $purchases = Purchase::where('status', 'completed')
                 ->with('items')
                 ->get();
 
@@ -140,7 +134,7 @@ class ReconstructIngredientMovements extends Command
                     $qty = (float) $item->quantity;
                     if ($qty <= 0) continue;
 
-                    $movement = InventoryMovement::where('reference_type', \App\Models\Purchase::class)
+                    $movement = InventoryMovement::where('reference_type', Purchase::class)
                         ->where('reference_id', $purchase->id)
                         ->where('ingredient_id', $item->ingredient_id)
                         ->first();
@@ -158,7 +152,7 @@ class ReconstructIngredientMovements extends Command
                             'stock_after' => 0,
                             'unit_cost' => (float) $item->unit_cost,
                             'total_cost' => (float) $item->total,
-                            'reference_type' => \App\Models\Purchase::class,
+                            'reference_type' => Purchase::class,
                             'reference_id' => $purchase->id,
                             'notes' => "Compra #{$purchase->purchase_number}",
                             'movement_date' => $purchase->purchase_date ? $purchase->purchase_date->toDateString() : $purchase->created_at->toDateString(),
@@ -177,8 +171,14 @@ class ReconstructIngredientMovements extends Command
                 }
             }
 
+            // 3. Process Sales for ingredients
+            $sales = Sale::where('status', 'completed')
+                ->with(['items.product.ingredients', 'branch'])
+                ->orderBy('created_at', 'asc')
+                ->get();
+
             foreach ($sales as $sale) {
-                // Check SaleItems (compuesto products)
+                // SaleItems (compuesto products)
                 foreach ($sale->items as $item) {
                     if (!$item->product_id) continue;
                     $product = $item->product;
@@ -225,7 +225,7 @@ class ReconstructIngredientMovements extends Command
                     }
                 }
 
-                // Check CuentaItems if sale originated from Mostrador
+                // CuentaItems if sale originated from Mostrador
                 $cuenta = Cuenta::where('sale_id', $sale->id)->first();
                 if ($cuenta) {
                     $cuentaItems = CuentaItem::where('cuenta_id', $cuenta->id)
@@ -233,7 +233,6 @@ class ReconstructIngredientMovements extends Command
                         ->get();
 
                     foreach ($cuentaItems as $ci) {
-                        // Standalone ingredient
                         if ($ci->ingredient_id) {
                             $ingId = $ci->ingredient_id;
                             $ing = $ci->ingredient ?? Ingredient::find($ingId);
@@ -277,7 +276,6 @@ class ReconstructIngredientMovements extends Command
                             }
                         }
 
-                        // Selected group ingredients
                         if ($ci->selectedIngredients) {
                             foreach ($ci->selectedIngredients as $sel) {
                                 $ingId = $sel->ingredient_id;
@@ -326,7 +324,7 @@ class ReconstructIngredientMovements extends Command
                 }
             }
 
-            // 3. Process Refunds
+            // 4. Process Refunds
             $refunds = Refund::with(['items.product.ingredients', 'sale'])->get();
             foreach ($refunds as $refund) {
                 foreach ($refund->items as $item) {
@@ -376,42 +374,87 @@ class ReconstructIngredientMovements extends Command
                 }
             }
 
-            // Also include any ingredients that already had movements
+            // Include all ingredients that have any movements
             $existingIngIds = InventoryMovement::whereNotNull('ingredient_id')->pluck('ingredient_id')->unique()->toArray();
             foreach ($existingIngIds as $id) {
                 $ingredientsAffected[$id] = true;
             }
 
-            // 4. Recalculate stock_before and stock_after backwards from current stock for all affected ingredients
+            // 5. Ensure an initial stock movement exists for each ingredient to prevent negative history
             foreach (array_keys($ingredientsAffected) as $ingredientId) {
                 $ingredient = Ingredient::find($ingredientId);
                 if (!$ingredient) continue;
 
+                $totalIn = (float) InventoryMovement::where('ingredient_id', $ingredientId)->where('movement_type', 'in')->sum('quantity');
+                $totalOut = (float) InventoryMovement::where('ingredient_id', $ingredientId)->where('movement_type', 'out')->sum('quantity');
+                $currentStock = (float) ($ingredient->stock ?? 0);
+
+                // Required initial balance before all recorded movements
+                $initialNeeded = $currentStock + $totalOut - $totalIn;
+
+                if ($initialNeeded > 0) {
+                    $earliest = InventoryMovement::where('ingredient_id', $ingredientId)->orderBy('created_at', 'asc')->first();
+                    $initDate = $earliest 
+                        ? \Carbon\Carbon::parse($earliest->created_at)->subSecond()
+                        : ($ingredient->created_at ?? now());
+
+                    $initMovement = InventoryMovement::where('ingredient_id', $ingredientId)
+                        ->where('reference_type', 'INITIAL_STOCK')
+                        ->first();
+
+                    if (!$initMovement) {
+                        $initMovement = new InventoryMovement([
+                            'system_document_id' => $adjustmentDocument?->id ?? $saleDocument->id,
+                            'document_number' => 'STK-INIT-' . $ingredientId,
+                            'ingredient_id' => $ingredientId,
+                            'branch_id' => auth()->check() ? auth()->user()->branch_id : 1,
+                            'user_id' => auth()->check() ? auth()->id() : 1,
+                            'movement_type' => 'in',
+                            'quantity' => $initialNeeded,
+                            'stock_before' => 0,
+                            'stock_after' => $initialNeeded,
+                            'unit_cost' => (float) ($ingredient->purchase_price ?? 0),
+                            'total_cost' => (float) ($ingredient->purchase_price ?? 0) * $initialNeeded,
+                            'reference_type' => 'INITIAL_STOCK',
+                            'reference_id' => $ingredientId,
+                            'notes' => 'Stock Inicial / Carga de Inventario Base',
+                            'movement_date' => $initDate->toDateString(),
+                        ]);
+                        $initMovement->created_at = $initDate;
+                        $initMovement->updated_at = $initDate;
+                        $initMovement->save();
+                        $movementsCreated++;
+                    } else {
+                        $initMovement->quantity = $initialNeeded;
+                        $initMovement->created_at = $initDate;
+                        $initMovement->updated_at = $initDate;
+                        $initMovement->save();
+                    }
+                }
+
+                // 6. Recalculate stock_before and stock_after chronologically starting from 0 FORWARD
                 $movements = InventoryMovement::where('ingredient_id', $ingredientId)
                     ->orderBy('created_at', 'asc')
                     ->orderBy('id', 'asc')
                     ->get();
 
-                if ($movements->isEmpty()) continue;
+                $runningStock = 0.0;
 
-                $runningStock = (float) $ingredient->stock;
-
-                for ($i = $movements->count() - 1; $i >= 0; $i--) {
-                    $m = $movements[$i];
-                    $stockAfter = $runningStock;
+                foreach ($movements as $m) {
+                    $stockBefore = $runningStock;
                     $qty = (float) $m->quantity;
 
                     if ($m->movement_type === 'in') {
-                        $stockBefore = $stockAfter - $qty;
+                        $stockAfter = $stockBefore + $qty;
                     } else {
-                        $stockBefore = $stockAfter + $qty;
+                        $stockAfter = $stockBefore - $qty;
                     }
 
                     $m->stock_before = $stockBefore;
                     $m->stock_after = $stockAfter;
                     $m->save();
 
-                    $runningStock = $stockBefore;
+                    $runningStock = $stockAfter;
                 }
             }
 
