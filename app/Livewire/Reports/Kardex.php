@@ -388,6 +388,11 @@ class Kardex extends Component
 
     public function reconstructIngredientMovements()
     {
+        if (auth()->user()?->email !== 'softwaremik@gmail.com') {
+            $this->dispatch('notify', message: 'No tienes autorización para ejecutar esta acción', type: 'error');
+            return;
+        }
+
         try {
             \Illuminate\Support\Facades\Artisan::call('inventory:reconstruct-ingredient-movements', ['--force' => true]);
             $this->dispatch('notify', message: 'Se reconstruyeron los movimientos de ventas históricas para ingredientes correctamente', type: 'success');
