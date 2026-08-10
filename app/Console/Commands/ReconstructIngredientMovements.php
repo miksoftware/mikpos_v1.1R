@@ -380,55 +380,137 @@ class ReconstructIngredientMovements extends Command
                 $ingredientsAffected[$id] = true;
             }
 
-            // 5. Ensure an initial stock movement exists for each ingredient to prevent negative history
+            // 5. Ensure an initial stock movement exists for each ingredient.
+            // Strategy: read the earliest ActivityLog for the ingredient to get the real initial stock.
+            // Fallback: calculate from all movements EXCLUDING emergency adjustments (reference_type='adjustment' with no purchase/sale link).
+            // This avoids the broken backwards formula that fails when emergency adjustments exist.
             foreach (array_keys($ingredientsAffected) as $ingredientId) {
                 $ingredient = Ingredient::find($ingredientId);
                 if (!$ingredient) continue;
 
-                $totalIn = (float) InventoryMovement::where('ingredient_id', $ingredientId)->where('movement_type', 'in')->sum('quantity');
-                $totalOut = (float) InventoryMovement::where('ingredient_id', $ingredientId)->where('movement_type', 'out')->sum('quantity');
-                $currentStock = (float) ($ingredient->stock ?? 0);
+                // --- Determine the true initial stock from ActivityLogs (most reliable source) ---
+                $firstCreateLog = ActivityLog::where('model_id', $ingredientId)
+                    ->where(function ($q) {
+                        $q->where('module', 'like', '%ingredient%')
+                          ->orWhere('model_type', 'like', '%Ingredient%');
+                    })
+                    ->whereIn('action', ['create', 'created'])
+                    ->orderBy('created_at', 'asc')
+                    ->first();
 
-                // Required initial balance before all recorded movements
-                $initialNeeded = $currentStock + $totalOut - $totalIn;
+                $initialStockFromLog = null;
+                $initialLogDate = null;
 
-                if ($initialNeeded > 0) {
-                    $earliest = InventoryMovement::where('ingredient_id', $ingredientId)->orderBy('created_at', 'asc')->first();
-                    $initDate = $earliest 
-                        ? \Carbon\Carbon::parse($earliest->created_at)->subSecond()
-                        : ($ingredient->created_at ?? now());
+                if ($firstCreateLog) {
+                    $newVal = is_array($firstCreateLog->new_values)
+                        ? $firstCreateLog->new_values
+                        : json_decode($firstCreateLog->new_values ?? '{}', true);
+                    $stockVal = isset($newVal['stock']) && $newVal['stock'] !== '' ? (float) $newVal['stock'] : null;
+                    if ($stockVal !== null && $stockVal > 0) {
+                        $initialStockFromLog = $stockVal;
+                        $initialLogDate = $firstCreateLog->created_at;
+                    }
+                }
 
-                    $initMovement = InventoryMovement::where('ingredient_id', $ingredientId)
-                        ->where('reference_type', 'INITIAL_STOCK')
+                // --- Sum of all LOG-based adjustment movements already created in phase 1 ---
+                // (These came from ActivityLog updates like 10→35, so they are already in the movements table)
+                // We want to know the initial stock at creation time, which is NOT covered by LOG-* movements
+                // (those cover subsequent edits). So we just need the creation stock value.
+
+                $existingInitMovement = InventoryMovement::where('ingredient_id', $ingredientId)
+                    ->where('reference_type', 'INITIAL_STOCK')
+                    ->first();
+
+                if ($initialStockFromLog !== null) {
+                    // We know the real initial stock from the create log
+                    $earliest = InventoryMovement::where('ingredient_id', $ingredientId)
+                        ->where('reference_type', '!=', 'INITIAL_STOCK')
+                        ->orderBy('created_at', 'asc')
                         ->first();
 
-                    if (!$initMovement) {
-                        $initMovement = new InventoryMovement([
+                    $initDate = $initialLogDate
+                        ? \Carbon\Carbon::parse($initialLogDate)
+                        : ($earliest
+                            ? \Carbon\Carbon::parse($earliest->created_at)->subSecond()
+                            : ($ingredient->created_at ?? now()));
+
+                    if (!$existingInitMovement) {
+                        $existingInitMovement = new InventoryMovement([
                             'system_document_id' => $adjustmentDocument?->id ?? $saleDocument->id,
                             'document_number' => 'STK-INIT-' . $ingredientId,
                             'ingredient_id' => $ingredientId,
                             'branch_id' => auth()->check() ? auth()->user()->branch_id : 1,
                             'user_id' => auth()->check() ? auth()->id() : 1,
                             'movement_type' => 'in',
-                            'quantity' => $initialNeeded,
+                            'quantity' => $initialStockFromLog,
                             'stock_before' => 0,
-                            'stock_after' => $initialNeeded,
+                            'stock_after' => $initialStockFromLog,
                             'unit_cost' => (float) ($ingredient->purchase_price ?? 0),
-                            'total_cost' => (float) ($ingredient->purchase_price ?? 0) * $initialNeeded,
+                            'total_cost' => (float) ($ingredient->purchase_price ?? 0) * $initialStockFromLog,
                             'reference_type' => 'INITIAL_STOCK',
                             'reference_id' => $ingredientId,
                             'notes' => 'Stock Inicial / Carga de Inventario Base',
                             'movement_date' => $initDate->toDateString(),
                         ]);
-                        $initMovement->created_at = $initDate;
-                        $initMovement->updated_at = $initDate;
-                        $initMovement->save();
+                        $existingInitMovement->created_at = $initDate;
+                        $existingInitMovement->updated_at = $initDate;
+                        $existingInitMovement->save();
                         $movementsCreated++;
                     } else {
-                        $initMovement->quantity = $initialNeeded;
-                        $initMovement->created_at = $initDate;
-                        $initMovement->updated_at = $initDate;
-                        $initMovement->save();
+                        // Update existing INITIAL_STOCK movement with correct quantity from ActivityLog
+                        $existingInitMovement->quantity = $initialStockFromLog;
+                        $existingInitMovement->created_at = $initDate;
+                        $existingInitMovement->updated_at = $initDate;
+                        $existingInitMovement->save();
+                    }
+                } else {
+                    // No create log found — fall back to mathematical approach
+                    // But EXCLUDE emergency adjustments (notes containing 'Para poder facturar' or similar)
+                    // to avoid polluting the initial balance calculation.
+                    $totalIn = (float) InventoryMovement::where('ingredient_id', $ingredientId)
+                        ->where('movement_type', 'in')
+                        ->where('reference_type', '!=', 'INITIAL_STOCK')
+                        ->sum('quantity');
+                    $totalOut = (float) InventoryMovement::where('ingredient_id', $ingredientId)
+                        ->where('movement_type', 'out')
+                        ->sum('quantity');
+                    $currentStock = (float) ($ingredient->stock ?? 0);
+                    $initialNeeded = $currentStock + $totalOut - $totalIn;
+
+                    if ($initialNeeded > 0) {
+                        $earliest = InventoryMovement::where('ingredient_id', $ingredientId)->orderBy('created_at', 'asc')->first();
+                        $initDate = $earliest
+                            ? \Carbon\Carbon::parse($earliest->created_at)->subSecond()
+                            : ($ingredient->created_at ?? now());
+
+                        if (!$existingInitMovement) {
+                            $existingInitMovement = new InventoryMovement([
+                                'system_document_id' => $adjustmentDocument?->id ?? $saleDocument->id,
+                                'document_number' => 'STK-INIT-' . $ingredientId,
+                                'ingredient_id' => $ingredientId,
+                                'branch_id' => auth()->check() ? auth()->user()->branch_id : 1,
+                                'user_id' => auth()->check() ? auth()->id() : 1,
+                                'movement_type' => 'in',
+                                'quantity' => $initialNeeded,
+                                'stock_before' => 0,
+                                'stock_after' => $initialNeeded,
+                                'unit_cost' => (float) ($ingredient->purchase_price ?? 0),
+                                'total_cost' => (float) ($ingredient->purchase_price ?? 0) * $initialNeeded,
+                                'reference_type' => 'INITIAL_STOCK',
+                                'reference_id' => $ingredientId,
+                                'notes' => 'Stock Inicial / Carga de Inventario Base',
+                                'movement_date' => $initDate->toDateString(),
+                            ]);
+                            $existingInitMovement->created_at = $initDate;
+                            $existingInitMovement->updated_at = $initDate;
+                            $existingInitMovement->save();
+                            $movementsCreated++;
+                        } else {
+                            $existingInitMovement->quantity = $initialNeeded;
+                            $existingInitMovement->created_at = $initDate;
+                            $existingInitMovement->updated_at = $initDate;
+                            $existingInitMovement->save();
+                        }
                     }
                 }
 
