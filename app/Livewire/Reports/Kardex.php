@@ -386,6 +386,19 @@ class Kardex extends Component
         $this->resetPage();
     }
 
+    public function reconstructIngredientMovements()
+    {
+        try {
+            \Illuminate\Support\Facades\Artisan::call('inventory:reconstruct-ingredient-movements', ['--force' => true]);
+            $this->dispatch('notify', message: 'Se reconstruyeron los movimientos de ventas históricas para ingredientes correctamente', type: 'success');
+            if ($this->selectedItemId) {
+                $this->loadProductMovements();
+            }
+        } catch (\Exception $e) {
+            $this->dispatch('notify', message: 'Error al reconstruir movimientos: ' . $e->getMessage(), type: 'error');
+        }
+    }
+
     public function render()
     {
         $user = auth()->user();
