@@ -53,6 +53,9 @@ class ReconstructIngredientMovements extends Command
                 $ingId = $log->model_id;
                 if (!$ingId) continue;
 
+                // Skip if ingredient was deleted from the database
+                if (!Ingredient::find($ingId)) continue;
+
                 $newVal = is_array($log->new_values) ? $log->new_values : json_decode($log->new_values ?? '[]', true);
                 $oldVal = is_array($log->old_values) ? $log->old_values : json_decode($log->old_values ?? '[]', true);
 
