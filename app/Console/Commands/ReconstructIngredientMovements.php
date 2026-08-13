@@ -580,37 +580,84 @@ class ReconstructIngredientMovements extends Command
                 $ingredient = Ingredient::find($ingredientId);
                 if (!$ingredient) continue;
 
-                $movements = InventoryMovement::where('ingredient_id', $ingredientId)
+                $allMovements = InventoryMovement::where('ingredient_id', $ingredientId)
                     ->orderBy('created_at', 'asc')
                     ->orderBy('id', 'asc')
                     ->get();
 
-                $runningStock = 0.0;
+                // Buscar si existe el ajuste manual AJU-00007 que sirve de punto de corte del cliente
+                $checkpointIndex = $allMovements->search(function ($m) {
+                    return $m->document_number === 'AJU-00007';
+                });
 
-                foreach ($movements as $m) {
-                    // Si es el ajuste manual AJU-00007, se respeta el punto de corte físico realizado por el cliente (80 -> 51)
-                    if ($m->document_number === 'AJU-00007') {
-                        $stockBefore = 80.0;
-                        $stockAfter  = 51.0;
-                    } else {
+                if ($checkpointIndex !== false) {
+                    $checkpointMov = $allMovements->get($checkpointIndex);
+
+                    // Punto de corte físico del cliente: Antes = 80, Después = 51
+                    $checkpointMov->stock_before = 80.0;
+                    $checkpointMov->stock_after  = 51.0;
+                    $checkpointMov->save();
+
+                    // 1. RECONCILIAR HACIA ATRÁS (del ajuste a los movimientos anteriores)
+                    $currentBack = 80.0; // Stock justo antes del ajuste
+                    for ($i = $checkpointIndex - 1; $i >= 0; $i--) {
+                        $m = $allMovements->get($i);
+                        $qty = (float) $m->quantity;
+
+                        if ($m->reference_type === 'INITIAL_STOCK') {
+                            $m->quantity     = $currentBack;
+                            $m->stock_before = 0.0;
+                            $m->stock_after  = $currentBack;
+                            $currentBack     = 0.0;
+                        } else {
+                            $m->stock_after  = $currentBack;
+                            $m->stock_before = $m->movement_type === 'out'
+                                ? $currentBack + $qty
+                                : $currentBack - $qty;
+                            $currentBack = $m->stock_before;
+                        }
+                        $m->save();
+                    }
+
+                    // 2. RECONCILIAR HACIA ADELANTE (del ajuste a los movimientos posteriores)
+                    $currentForward = 51.0; // Stock justo después del ajuste
+                    for ($i = $checkpointIndex + 1; $i < $allMovements->count(); $i++) {
+                        $m = $allMovements->get($i);
+                        $qty = (float) $m->quantity;
+
+                        $m->stock_before = $currentForward;
+                        $m->stock_after  = $m->movement_type === 'in'
+                            ? $currentForward + $qty
+                            : $currentForward - $qty;
+                        $m->save();
+
+                        $currentForward = $m->stock_after;
+                    }
+
+                    $ingredient->stock = $currentForward;
+                    $ingredient->save();
+
+                } else {
+                    // Si no hay ajuste fijo, cálculo lineal estándar
+                    $runningStock = 0.0;
+                    foreach ($allMovements as $m) {
                         $stockBefore = $runningStock;
                         $qty         = (float) $m->quantity;
 
                         $stockAfter = $m->movement_type === 'in'
                             ? $stockBefore + $qty
                             : $stockBefore - $qty;
+
+                        $m->stock_before = $stockBefore;
+                        $m->stock_after  = $stockAfter;
+                        $m->save();
+
+                        $runningStock = $stockAfter;
                     }
 
-                    $m->stock_before = $stockBefore;
-                    $m->stock_after  = $stockAfter;
-                    $m->save();
-
-                    $runningStock = $stockAfter;
+                    $ingredient->stock = $runningStock;
+                    $ingredient->save();
                 }
-
-                // Actualizar el stock real del ingrediente al valor calculado
-                $ingredient->stock = $runningStock;
-                $ingredient->save();
             }
 
             DB::commit();
