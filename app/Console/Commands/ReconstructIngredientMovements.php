@@ -588,12 +588,18 @@ class ReconstructIngredientMovements extends Command
                 $runningStock = 0.0;
 
                 foreach ($movements as $m) {
-                    $stockBefore = $runningStock;
-                    $qty         = (float) $m->quantity;
+                    // Si es el ajuste manual AJU-00007, se respeta el punto de corte físico realizado por el cliente (80 -> 51)
+                    if ($m->document_number === 'AJU-00007') {
+                        $stockBefore = 80.0;
+                        $stockAfter  = 51.0;
+                    } else {
+                        $stockBefore = $runningStock;
+                        $qty         = (float) $m->quantity;
 
-                    $stockAfter = $m->movement_type === 'in'
-                        ? $stockBefore + $qty
-                        : $stockBefore - $qty;
+                        $stockAfter = $m->movement_type === 'in'
+                            ? $stockBefore + $qty
+                            : $stockBefore - $qty;
+                    }
 
                     $m->stock_before = $stockBefore;
                     $m->stock_after  = $stockAfter;
