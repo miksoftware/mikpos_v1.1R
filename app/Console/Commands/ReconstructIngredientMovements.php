@@ -109,18 +109,20 @@ class ReconstructIngredientMovements extends Command
                     }
                 }
 
-                // If reservation movements were linked, delete any duplicate FAC-* movements created by previous runs for the same sale & ingredient
-                if ($resMovements->count() > 0) {
-                    $resIngIds = $resMovements->pluck('ingredient_id')->filter()->unique()->toArray();
-                    $resMovIds = $resMovements->pluck('id')->toArray();
+                // Clean up any movements falsely linked to this sale that do not belong to this cuenta's ingredients
+                if (!empty($cuentaIngredients)) {
+                    InventoryMovement::where('reference_type', Sale::class)
+                        ->where('reference_id', $sale->id)
+                        ->whereNotIn('ingredient_id', $cuentaIngredients)
+                        ->delete();
+                }
 
-                    foreach ($resIngIds as $ingId) {
-                        InventoryMovement::where('reference_type', Sale::class)
-                            ->where('reference_id', $sale->id)
-                            ->where('ingredient_id', $ingId)
-                            ->whereNotIn('id', $resMovIds)
-                            ->delete();
-                    }
+                if ($resMovements->count() > 0) {
+                    $resMovIds = $resMovements->pluck('id')->toArray();
+                    InventoryMovement::where('reference_type', Sale::class)
+                        ->where('reference_id', $sale->id)
+                        ->whereNotIn('id', $resMovIds)
+                        ->delete();
                 }
             }
 
