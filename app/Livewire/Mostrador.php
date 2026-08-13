@@ -788,7 +788,8 @@ class Mostrador extends Component
 
             // Descontar 1 unidad adicional del ingrediente en tiempo real
             if ($ingredient->manage_inventory) {
-                $this->deductIngredientStock($ingredient, 1, "Reserva de comanda – Mesa: {$this->selectedMesaName}");
+                $ciRef = CuentaItem::find($this->cart[$idx]['cuenta_item_id']);
+                $this->deductIngredientStock($ingredient, 1, "Reserva de comanda – Mesa: {$this->selectedMesaName}", $ciRef);
             }
         } else {
             $taxAmt  = round($basePrice * $taxRate, 2);
@@ -903,6 +904,9 @@ class Mostrador extends Component
         ]);
 
         // Descontar 1 unidad adicional del inventario en tiempo real
+        // Recuperar CuentaItem para vincularlo como referencia exacta al movimiento
+        $ciRef = CuentaItem::find($item['cuenta_item_id']);
+
         if ($item['type'] === 'product') {
             $product = Product::with('ingredients')->find($item['item_id']);
             if ($product && $product->manages_inventory) {
@@ -911,7 +915,7 @@ class Mostrador extends Component
             if ($product && $product->product_type === 'compuesto') {
                 foreach ($product->ingredients as $ing) {
                     if ($ing->manage_inventory) {
-                        $this->deductIngredientStock($ing, (float) $ing->pivot->quantity, "Pre-descuento comanda (Ingrediente de: {$product->name}) – Mesa: {$this->selectedMesaName}");
+                        $this->deductIngredientStock($ing, (float) $ing->pivot->quantity, "Pre-descuento comanda (Ingrediente de: {$product->name}) – Mesa: {$this->selectedMesaName}", $ciRef);
                     }
                 }
             }
@@ -919,14 +923,14 @@ class Mostrador extends Component
                 foreach ($item['selected_ingredients'] as $sel) {
                     $selIng = Ingredient::find($sel['ingredient_id']);
                     if ($selIng && $selIng->manage_inventory) {
-                        $this->deductIngredientStock($selIng, 1, "Pre-descuento comanda (Ingrediente opcional) – Mesa: {$this->selectedMesaName}");
+                        $this->deductIngredientStock($selIng, 1, "Pre-descuento comanda (Ingrediente opcional) – Mesa: {$this->selectedMesaName}", $ciRef);
                     }
                 }
             }
         } elseif ($item['type'] === 'ingredient') {
             $ing = Ingredient::find($item['item_id']);
             if ($ing && $ing->manage_inventory) {
-                $this->deductIngredientStock($ing, 1, "Pre-descuento comanda – Mesa: {$this->selectedMesaName}");
+                $this->deductIngredientStock($ing, 1, "Pre-descuento comanda – Mesa: {$this->selectedMesaName}", $ciRef);
             }
         }
     }
@@ -1618,14 +1622,14 @@ class Mostrador extends Component
                         // Descontar solo las unidades que aún no fueron pre-descontadas
                         if ($pendingQty > 0) {
                             $product->decrement('current_stock', $pendingQty);
+                            // Registrar movimiento solo cuando haya unidades pendientes (evita duplicados)
+                            InventoryMovement::createMovement(
+                                'sale', $product, 'out', $pendingQty,
+                                (float) $item['base_price'],
+                                "Venta #{$sale->invoice_number} (Mostrador: {$this->selectedMesaName})",
+                                $sale, $this->branchId
+                            );
                         }
-                        // Siempre registrar el movimiento completo para auditoría
-                        InventoryMovement::createMovement(
-                            'sale', $product, 'out', (float) $item['quantity'],
-                            (float) $item['base_price'],
-                            "Venta #{$sale->invoice_number} (Mostrador: {$this->selectedMesaName})",
-                            $sale, $this->branchId
-                        );
                     }
 
                     // Compuesto: descontar ingredientes de receta no pre-reservados

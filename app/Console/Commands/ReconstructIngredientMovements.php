@@ -41,7 +41,10 @@ class ReconstructIngredientMovements extends Command
 
         try {
             // 0. Link live comanda reservation movements (VTA-*) to completed Sales, and remove duplicate FAC-* movements
-            $closedCuentas = Cuenta::where('status', 'cerrada')->whereNotNull('sale_id')->with('sale')->get();
+            $closedCuentas = Cuenta::where('status', 'cerrada')
+                ->whereNotNull('sale_id')
+                ->with(['sale.items'])
+                ->get();
 
             foreach ($closedCuentas as $cuenta) {
                 if (!$cuenta->sale) continue;
@@ -49,79 +52,86 @@ class ReconstructIngredientMovements extends Command
 
                 $cuentaItemIds = CuentaItem::where('cuenta_id', $cuenta->id)->pluck('id')->toArray();
 
-                // Find ingredients actually present in this cuenta's items
-                $cuentaIngredients = [];
-                $cuentaItemsList = CuentaItem::where('cuenta_id', $cuenta->id)->get();
-                foreach ($cuentaItemsList as $cItem) {
-                    if ($cItem->ingredient_id) {
-                        $cuentaIngredients[] = $cItem->ingredient_id;
-                    }
-                    if ($cItem->product_id) {
-                        $prod = Product::with('ingredients')->find($cItem->product_id);
-                        if ($prod && $prod->product_type === 'compuesto') {
-                            foreach ($prod->ingredients as $ing) {
-                                $cuentaIngredients[] = $ing->id;
-                            }
-                        }
-                    }
+                // ────────────────────────────────────────────────────────────────────
+                // REGLA FUNDAMENTAL: Solo vinculamos movimientos que apunten
+                // EXACTAMENTE a un CuentaItem de esta cuenta (reference_type=CuentaItem
+                // y reference_id dentro de $cuentaItemIds).
+                // NO se usan rangos de tiempo ni búsqueda por ingredient_id para evitar
+                // capturar movimientos de otras mesas que venden el mismo ingrediente.
+                // ────────────────────────────────────────────────────────────────────
+                if (empty($cuentaItemIds)) {
+                    continue;
                 }
-                $cuentaIngredients = array_unique(array_filter($cuentaIngredients));
 
-                // Find reservation movements ONLY for this cuenta's items or ingredients
-                $resMovements = InventoryMovement::where(function ($q) use ($cuentaItemIds, $cuenta, $sale, $cuentaIngredients) {
-                    if (!empty($cuentaItemIds)) {
-                        $q->where(function ($q1) use ($cuentaItemIds) {
-                            $q1->where('reference_type', CuentaItem::class)
-                               ->whereIn('reference_id', $cuentaItemIds);
-                        });
-                    }
-
-                    if (!empty($cuentaIngredients)) {
-                        $q->orWhere(function ($q2) use ($sale, $cuenta, $cuentaIngredients) {
-                            $q2->where(function ($qNull) {
-                                    $qNull->whereNull('reference_type')
-                                          ->orWhere('reference_type', '');
-                                })
-                               ->whereIn('ingredient_id', $cuentaIngredients)
-                               ->where('branch_id', $sale->branch_id)
-                               ->where(function ($q3) {
-                                   $q3->where('document_number', 'like', 'VTA-%')
-                                      ->orWhere('notes', 'like', '%comanda%')
-                                      ->orWhere('notes', 'like', '%Pre-descuento%')
-                                      ->orWhere('notes', 'like', '%Reserva%');
-                               })
-                               ->whereBetween('created_at', [
-                                   \Carbon\Carbon::parse($cuenta->created_at)->subMinutes(30),
-                                   \Carbon\Carbon::parse($sale->created_at)->addMinutes(10)
-                               ]);
-                        });
-                    }
-                })->get();
+                $resMovements = InventoryMovement::where('reference_type', CuentaItem::class)
+                    ->whereIn('reference_id', $cuentaItemIds)
+                    ->get();
 
                 foreach ($resMovements as $m) {
-                    $m->reference_type = Sale::class;
-                    $m->reference_id = $sale->id;
+                    $m->reference_type  = Sale::class;
+                    $m->reference_id    = $sale->id;
                     $m->document_number = $sale->invoice_number;
-                    $m->notes = "Venta #{$sale->invoice_number} (Mostrador)";
+                    $m->notes           = "Venta #{$sale->invoice_number} (Mostrador)";
                     $m->save();
                     if ($m->ingredient_id) {
                         $ingredientsAffected[$m->ingredient_id] = true;
                     }
                 }
 
-                // Clean up any movements falsely linked to this sale that do not belong to this cuenta's ingredients
-                if (!empty($cuentaIngredients)) {
-                    InventoryMovement::where('reference_type', Sale::class)
-                        ->where('reference_id', $sale->id)
-                        ->whereNotIn('ingredient_id', $cuentaIngredients)
-                        ->delete();
+                // ──────────────────────────────────────────────────────────────────
+                // Limpieza selectiva: eliminar SOLO los movimientos que fueron
+                // erróneamente reasignados a esta venta (reference_type=Sale,
+                // reference_id=$sale->id) pero cuyo ingredient_id NO pertenece a
+                // ningún CuentaItem de esta cuenta NI a ningún SaleItem de esta venta.
+                // Esto revierte el daño de corridas anteriores sin borrar datos legítimos.
+                // ──────────────────────────────────────────────────────────────────
+                $legitimateIngredientIds = [];
+
+                // Ingredientes directos de cuentaItems
+                $cuentaItemsList = CuentaItem::where('cuenta_id', $cuenta->id)->get();
+                foreach ($cuentaItemsList as $cItem) {
+                    if ($cItem->ingredient_id) {
+                        $legitimateIngredientIds[] = $cItem->ingredient_id;
+                    }
+                    if ($cItem->product_id) {
+                        $prod = Product::with('ingredients')->find($cItem->product_id);
+                        if ($prod && $prod->product_type === 'compuesto') {
+                            foreach ($prod->ingredients as $ing) {
+                                $legitimateIngredientIds[] = $ing->id;
+                            }
+                        }
+                    }
                 }
 
-                if ($resMovements->count() > 0) {
-                    $resMovIds = $resMovements->pluck('id')->toArray();
+                // Ingredientes de sale_items (productos compuestos de venta directa POS)
+                foreach ($sale->items as $si) {
+                    if ($si->product_id) {
+                        $prod = Product::with('ingredients')->find($si->product_id);
+                        if ($prod && $prod->product_type === 'compuesto') {
+                            foreach ($prod->ingredients as $ing) {
+                                $legitimateIngredientIds[] = $ing->id;
+                            }
+                        }
+                    }
+                }
+
+                $legitimateIngredientIds = array_unique(array_filter($legitimateIngredientIds));
+
+                if (!empty($legitimateIngredientIds)) {
+                    // Borrar movimientos de inventario vinculados a esta venta cuyo
+                    // ingrediente no corresponde a nada de esta cuenta o venta.
+                    // Solo afectamos movimientos que tengan notas de comanda/reserva
+                    // (los que fueron capturados erróneamente por el barrido de 12h).
                     InventoryMovement::where('reference_type', Sale::class)
                         ->where('reference_id', $sale->id)
-                        ->whereNotIn('id', $resMovIds)
+                        ->whereNotNull('ingredient_id')
+                        ->whereNotIn('ingredient_id', $legitimateIngredientIds)
+                        ->where(function ($q) {
+                            $q->where('notes', 'like', '%comanda%')
+                              ->orWhere('notes', 'like', '%Reserva%')
+                              ->orWhere('notes', 'like', '%Pre-descuento%')
+                              ->orWhere('notes', 'like', '%Mostrador%');
+                        })
                         ->delete();
                 }
             }
