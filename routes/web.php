@@ -406,6 +406,10 @@ Route::middleware(['auth'])->group(function () {
             ->name('kardex')
             ->middleware('permission:reports.kardex');
 
+        Route::get('/kardex/excel', [App\Http\Controllers\ReportExportController::class, 'kardexExcel'])
+            ->name('kardex.excel')
+            ->middleware('permission:reports.export');
+
         Route::get('/sales-book', App\Livewire\Reports\SalesBook::class)
             ->name('sales-book')
             ->middleware('permission:reports.sales_book');

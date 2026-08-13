@@ -17,6 +17,8 @@ use App\Models\Expense;
 use App\Models\Customer;
 use App\Models\PaymentMethod;
 use App\Models\CashRegister;
+use App\Models\Ingredient;
+use App\Models\InventoryMovement;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
@@ -1805,6 +1807,454 @@ class ReportExportController extends Controller
 
         $writer = new Xlsx($spreadsheet);
         $filename = 'libro-ventas-' . now()->format('Y-m-d') . '.xlsx';
+
+        $tempFile = tempnam(sys_get_temp_dir(), 'excel');
+        $writer->save($tempFile);
+
+        return response()->download($tempFile, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
+    }
+
+    public function kardexExcel(Request $request)
+    {
+        $user = auth()->user();
+
+        $branchId = $request->get('branch_id');
+        $categoryId = $request->get('category_id');
+        $brandId = $request->get('brand_id');
+        $itemTypeFilter = $request->get('item_type', 'all');
+        $stockFilter = $request->get('stock_filter', 'all');
+        $search = trim($request->get('search', ''));
+        $dateFrom = $request->get('date_from');
+        $dateTo = $request->get('date_to');
+
+        $itemId = $request->get('item_id');
+        $itemTypeDetail = $request->get('item_type_detail', 'product');
+
+        // Check if user requested single item movements export
+        if ($itemId) {
+            return $this->exportItemMovementsExcel((int) $itemId, $itemTypeDetail, $dateFrom, $dateTo);
+        }
+
+        // Branch name
+        $branchName = 'Todas';
+        if ($branchId) {
+            $branchName = Branch::find($branchId)?->name ?? 'Todas';
+        } elseif (!$user->isSuperAdmin()) {
+            $branchName = $user->branch?->name ?? '-';
+        }
+
+        // Build items list
+        $productItems = collect();
+        if (in_array($itemTypeFilter, ['all', 'product'])) {
+            $pQuery = Product::query()->where('is_active', true);
+
+            if ($branchId) {
+                $pQuery->where('branch_id', $branchId);
+            } elseif (!$user->isSuperAdmin()) {
+                $pQuery->where('branch_id', $user->branch_id);
+            }
+
+            if ($categoryId) {
+                $pQuery->where('category_id', $categoryId);
+            }
+
+            if ($brandId) {
+                $pQuery->where('brand_id', $brandId);
+            }
+
+            if ($search) {
+                $pQuery->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                      ->orWhere('sku', 'like', "%{$search}%")
+                      ->orWhere('barcode', 'like', "%{$search}%");
+                });
+            }
+
+            switch ($stockFilter) {
+                case 'zero':
+                    $pQuery->where('current_stock', 0);
+                    break;
+                case 'positive':
+                    $pQuery->where('current_stock', '>', 0);
+                    break;
+                case 'negative':
+                    $pQuery->where('current_stock', '<', 0);
+                    break;
+            }
+
+            $productItems = $pQuery->with(['category', 'brand', 'unit'])->get()->map(function ($p) {
+                $stock = (float) ($p->current_stock ?? 0);
+                $purchasePrice = (float) ($p->purchase_price ?? 0);
+                $salePrice = (float) ($p->sale_price ?? 0);
+                return (object) [
+                    'id' => $p->id,
+                    'item_type' => 'product',
+                    'type_label' => 'Producto',
+                    'name' => $p->name,
+                    'sku' => $p->sku ?: '-',
+                    'category_name' => $p->category?->name ?? '-',
+                    'brand_name' => $p->brand?->name ?? '-',
+                    'unit_symbol' => $p->unit?->abbreviation ?? 'und',
+                    'current_stock' => $stock,
+                    'purchase_price' => $purchasePrice,
+                    'sale_price' => $salePrice,
+                    'inventory_value' => $stock * $salePrice,
+                    'profit' => ($salePrice - $purchasePrice) * $stock,
+                ];
+            });
+        }
+
+        $ingredientItems = collect();
+        if (in_array($itemTypeFilter, ['all', 'ingredient'])) {
+            $iQuery = Ingredient::query()->where('is_active', true);
+
+            if ($categoryId) {
+                $iQuery->where('category_id', $categoryId);
+            }
+
+            if ($brandId) {
+                $iQuery->whereRaw('1 = 0');
+            }
+
+            if ($search) {
+                $iQuery->where('name', 'like', "%{$search}%");
+            }
+
+            switch ($stockFilter) {
+                case 'zero':
+                    $iQuery->where('stock', 0);
+                    break;
+                case 'positive':
+                    $iQuery->where('stock', '>', 0);
+                    break;
+                case 'negative':
+                    $iQuery->where('stock', '<', 0);
+                    break;
+            }
+
+            $ingredientItems = $iQuery->with(['category', 'unit'])->get()->map(function ($i) {
+                $stock = (float) ($i->stock ?? 0);
+                $purchasePrice = (float) ($i->purchase_price ?? 0);
+                $salePrice = (float) ($i->sale_price ?? 0);
+                return (object) [
+                    'id' => $i->id,
+                    'item_type' => 'ingredient',
+                    'type_label' => 'Ingrediente',
+                    'name' => $i->name,
+                    'sku' => 'ING-' . str_pad($i->id, 4, '0', STR_PAD_LEFT),
+                    'category_name' => $i->category?->name ?? '-',
+                    'brand_name' => '-',
+                    'unit_symbol' => $i->unit?->abbreviation ?? 'und',
+                    'current_stock' => $stock,
+                    'purchase_price' => $purchasePrice,
+                    'sale_price' => $salePrice,
+                    'inventory_value' => $stock * $salePrice,
+                    'profit' => ($salePrice - $purchasePrice) * $stock,
+                ];
+            });
+        }
+
+        $allItems = $productItems->concat($ingredientItems)->sortBy('name')->values();
+
+        // Summary calculations
+        $totalItems = $allItems->count();
+        $productsWithStock = $allItems->where('current_stock', '>', 0)->count();
+        $productsZeroStock = $allItems->where('current_stock', '==', 0)->count();
+        $productsNegativeStock = $allItems->where('current_stock', '<', 0)->count();
+
+        $totalInventoryValue = $allItems->where('current_stock', '>', 0)->sum('inventory_value');
+        $totalInventoryCost = $allItems->where('current_stock', '>', 0)->sum(function ($item) {
+            return $item->current_stock * $item->purchase_price;
+        });
+        $totalPotentialProfit = $totalInventoryValue - $totalInventoryCost;
+
+        // Build spreadsheet
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Kardex Inventario');
+
+        $headerStyle = [
+            'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF'], 'size' => 11],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'A855F7']],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => '9333EA']]],
+        ];
+
+        $titleStyle = [
+            'font' => ['bold' => true, 'size' => 16, 'color' => ['rgb' => '1E293B']],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+        ];
+
+        $subtitleStyle = [
+            'font' => ['bold' => true, 'size' => 12, 'color' => ['rgb' => 'A855F7']],
+        ];
+
+        $summaryStyle = [
+            'font' => ['bold' => true, 'size' => 11],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'F8FAFC']],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => 'E2E8F0']]],
+        ];
+
+        $dataStyle = [
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => 'E2E8F0']]],
+            'alignment' => ['vertical' => Alignment::VERTICAL_CENTER],
+        ];
+
+        $row = 1;
+
+        // Title
+        $sheet->setCellValue('A' . $row, 'KARDEX DE INVENTARIO - REPORTE GENERAL');
+        $sheet->mergeCells('A' . $row . ':K' . $row);
+        $sheet->getStyle('A' . $row)->applyFromArray($titleStyle);
+        $sheet->getRowDimension($row)->setRowHeight(30);
+        $row += 2;
+
+        // Meta info
+        $sheet->setCellValue('A' . $row, 'Sucursal:');
+        $sheet->setCellValue('B' . $row, $branchName);
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row++;
+
+        $sheet->setCellValue('A' . $row, 'Generado:');
+        $sheet->setCellValue('B' . $row, now()->format('d/m/Y H:i:s'));
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row += 2;
+
+        // Summary section
+        $sheet->setCellValue('A' . $row, 'RESUMEN');
+        $sheet->getStyle('A' . $row)->applyFromArray($subtitleStyle);
+        $row++;
+
+        $summaryData = [
+            ['Total de Ítems:', $totalItems, '#,##0'],
+            ['Con Existencias:', $productsWithStock, '#,##0'],
+            ['Sin Existencias:', $productsZeroStock, '#,##0'],
+            ['Stock Negativo:', $productsNegativeStock, '#,##0'],
+            ['Valor Total Inventario (Venta):', $totalInventoryValue, '$#,##0'],
+            ['Costo Total Inventario (Compra):', $totalInventoryCost, '$#,##0'],
+            ['Ganancia Potencial Estimada:', $totalPotentialProfit, '$#,##0'],
+        ];
+
+        foreach ($summaryData as $item) {
+            $sheet->setCellValue('A' . $row, $item[0]);
+            $sheet->setCellValue('B' . $row, $item[1]);
+            $sheet->getStyle('A' . $row . ':B' . $row)->applyFromArray($summaryStyle);
+            $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode($item[2]);
+            $row++;
+        }
+        $row += 2;
+
+        // Detail table
+        $sheet->setCellValue('A' . $row, 'LISTADO DE INVENTARIO Y VALORIZACIÓN');
+        $sheet->getStyle('A' . $row)->applyFromArray($subtitleStyle);
+        $row++;
+
+        $headers = ['SKU / Código', 'Nombre del Ítem', 'Tipo', 'Categoría', 'Marca', 'Unidad', 'Stock Actual', 'Precio Compra / Costo', 'Precio Venta', 'Valor Inventario', 'Ganancia Potencial'];
+        $col = 'A';
+        foreach ($headers as $header) {
+            $sheet->setCellValue($col . $row, $header);
+            $col++;
+        }
+        $sheet->getStyle('A' . $row . ':K' . $row)->applyFromArray($headerStyle);
+        $sheet->getRowDimension($row)->setRowHeight(25);
+        $row++;
+
+        // Data rows
+        foreach ($allItems as $item) {
+            $sheet->setCellValue('A' . $row, $item->sku);
+            $sheet->setCellValue('B' . $row, $item->name);
+            $sheet->setCellValue('C' . $row, $item->type_label);
+            $sheet->setCellValue('D' . $row, $item->category_name);
+            $sheet->setCellValue('E' . $row, $item->brand_name);
+            $sheet->setCellValue('F' . $row, $item->unit_symbol);
+            $sheet->setCellValue('G' . $row, (float) $item->current_stock);
+            $sheet->setCellValue('H' . $row, (float) $item->purchase_price);
+            $sheet->setCellValue('I' . $row, (float) $item->sale_price);
+            $sheet->setCellValue('J' . $row, (float) $item->inventory_value);
+            $sheet->setCellValue('K' . $row, (float) $item->profit);
+
+            $sheet->getStyle('A' . $row . ':K' . $row)->applyFromArray($dataStyle);
+            $sheet->getStyle('G' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('H' . $row)->getNumberFormat()->setFormatCode('$#,##0');
+            $sheet->getStyle('I' . $row)->getNumberFormat()->setFormatCode('$#,##0');
+            $sheet->getStyle('J' . $row)->getNumberFormat()->setFormatCode('$#,##0');
+            $sheet->getStyle('K' . $row)->getNumberFormat()->setFormatCode('$#,##0');
+
+            if ($row % 2 == 0) {
+                $sheet->getStyle('A' . $row . ':K' . $row)->getFill()
+                    ->setFillType(Fill::FILL_SOLID)
+                    ->getStartColor()->setRGB('F8FAFC');
+            }
+
+            if ($item->current_stock < 0) {
+                $sheet->getStyle('G' . $row)->getFont()->getColor()->setRGB('DC2626');
+            }
+
+            $row++;
+        }
+
+        // Totals row
+        $sheet->setCellValue('F' . $row, 'TOTALES:');
+        $sheet->getStyle('F' . $row)->getFont()->setBold(true);
+        $sheet->setCellValue('G' . $row, $allItems->sum('current_stock'));
+        $sheet->setCellValue('J' . $row, $totalInventoryValue);
+        $sheet->setCellValue('K' . $row, $totalPotentialProfit);
+        $sheet->getStyle('F' . $row . ':K' . $row)->applyFromArray($summaryStyle);
+        $sheet->getStyle('G' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+        $sheet->getStyle('J' . $row)->getNumberFormat()->setFormatCode('$#,##0');
+        $sheet->getStyle('K' . $row)->getNumberFormat()->setFormatCode('$#,##0');
+
+        // Auto-size columns
+        foreach (range('A', 'K') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        $writer = new Xlsx($spreadsheet);
+        $filename = 'kardex-inventario-' . now()->format('Y-m-d') . '.xlsx';
+
+        $tempFile = tempnam(sys_get_temp_dir(), 'excel');
+        $writer->save($tempFile);
+
+        return response()->download($tempFile, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
+    }
+
+    private function exportItemMovementsExcel(int $itemId, string $itemTypeDetail, ?string $dateFrom, ?string $dateTo)
+    {
+        if ($itemTypeDetail === 'ingredient') {
+            $item = Ingredient::with(['category', 'unit'])->find($itemId);
+            $name = $item?->name ?? 'Ingrediente';
+            $sku = 'ING-' . str_pad($itemId, 4, '0', STR_PAD_LEFT);
+            $query = InventoryMovement::where('ingredient_id', $itemId);
+        } else {
+            $item = Product::with(['category', 'brand', 'unit'])->find($itemId);
+            $name = $item?->name ?? 'Producto';
+            $sku = $item?->sku ?: '-';
+            $query = InventoryMovement::where('product_id', $itemId);
+        }
+
+        $query->with(['systemDocument', 'user', 'branch']);
+
+        if ($dateFrom) {
+            $query->whereDate('created_at', '>=', $dateFrom);
+        }
+        if ($dateTo) {
+            $query->whereDate('created_at', '<=', $dateTo);
+        }
+
+        $movements = $query->orderByDesc('created_at')->limit(500)->get();
+
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Movimientos Kardex');
+
+        $headerStyle = [
+            'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF'], 'size' => 11],
+            'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'A855F7']],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => '9333EA']]],
+        ];
+
+        $titleStyle = [
+            'font' => ['bold' => true, 'size' => 16, 'color' => ['rgb' => '1E293B']],
+            'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+        ];
+
+        $dataStyle = [
+            'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => 'E2E8F0']]],
+            'alignment' => ['vertical' => Alignment::VERTICAL_CENTER],
+        ];
+
+        $row = 1;
+
+        // Title
+        $sheet->setCellValue('A' . $row, "MOVIMIENTOS DE KARDEX - {$name}");
+        $sheet->mergeCells('A' . $row . ':J' . $row);
+        $sheet->getStyle('A' . $row)->applyFromArray($titleStyle);
+        $sheet->getRowDimension($row)->setRowHeight(30);
+        $row += 2;
+
+        // Meta info
+        $sheet->setCellValue('A' . $row, 'Ítem:');
+        $sheet->setCellValue('B' . $row, $name . " ({$sku})");
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row++;
+
+        if ($dateFrom || $dateTo) {
+            $sheet->setCellValue('A' . $row, 'Período:');
+            $sheet->setCellValue('B' . $row, ($dateFrom ? Carbon::parse($dateFrom)->format('d/m/Y') : 'Inicio') . ' a ' . ($dateTo ? Carbon::parse($dateTo)->format('d/m/Y') : 'Hoy'));
+            $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+            $row++;
+        }
+
+        $sheet->setCellValue('A' . $row, 'Generado:');
+        $sheet->setCellValue('B' . $row, now()->format('d/m/Y H:i:s'));
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row += 2;
+
+        // Headers
+        $headers = ['Fecha y Hora', 'Documento', 'Factura / No. Doc', 'Tipo', 'Cantidad', 'Stock Anterior', 'Stock Después', 'Costo Unitario', 'Usuario', 'Notas'];
+        $col = 'A';
+        foreach ($headers as $header) {
+            $sheet->setCellValue($col . $row, $header);
+            $col++;
+        }
+        $sheet->getStyle('A' . $row . ':J' . $row)->applyFromArray($headerStyle);
+        $sheet->getRowDimension($row)->setRowHeight(25);
+        $row++;
+
+        foreach ($movements as $m) {
+            $invoiceNumber = null;
+            if ($m->reference_type === 'App\\Models\\Sale' && $m->reference_id) {
+                $sale = \App\Models\Sale::find($m->reference_id);
+                $invoiceNumber = $sale?->invoice_number;
+            } elseif ($m->reference_type === 'App\\Models\\Refund' && $m->reference_id) {
+                $refund = \App\Models\Refund::find($m->reference_id);
+                $invoiceNumber = $refund?->number;
+            } elseif ($m->reference_type === 'App\\Models\\Purchase' && $m->reference_id) {
+                $purchase = \App\Models\Purchase::find($m->reference_id);
+                $invoiceNumber = $purchase?->purchase_number ?? $m->document_number;
+            }
+
+            $typeLabel = $m->movement_type === 'in' ? 'Entrada' : 'Salida';
+            $qtySign = $m->movement_type === 'in' ? (float)$m->quantity : -(float)$m->quantity;
+
+            $sheet->setCellValue('A' . $row, $m->created_at->format('d/m/Y H:i'));
+            $sheet->setCellValue('B' . $row, $m->systemDocument?->name ?? 'N/A');
+            $sheet->setCellValue('C' . $row, $invoiceNumber ?? $m->document_number ?? '-');
+            $sheet->setCellValue('D' . $row, $typeLabel);
+            $sheet->setCellValue('E' . $row, $qtySign);
+            $sheet->setCellValue('F' . $row, (float) $m->stock_before);
+            $sheet->setCellValue('G' . $row, (float) $m->stock_after);
+            $sheet->setCellValue('H' . $row, (float) ($m->unit_cost ?? 0));
+            $sheet->setCellValue('I' . $row, $m->user?->name ?? 'Sistema');
+            $sheet->setCellValue('J' . $row, $m->notes ?? '-');
+
+            $sheet->getStyle('A' . $row . ':J' . $row)->applyFromArray($dataStyle);
+            $sheet->getStyle('E' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('F' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('G' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('H' . $row)->getNumberFormat()->setFormatCode('$#,##0');
+
+            if ($m->movement_type === 'in') {
+                $sheet->getStyle('E' . $row)->getFont()->getColor()->setRGB('16A34A');
+            } else {
+                $sheet->getStyle('E' . $row)->getFont()->getColor()->setRGB('DC2626');
+            }
+
+            $row++;
+        }
+
+        foreach (range('A', 'J') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        $writer = new Xlsx($spreadsheet);
+        $cleanName = preg_replace('/[^A-Za-z0-9_\-]/', '_', $name);
+        $filename = 'movimientos-kardex-' . strtolower($cleanName) . '-' . now()->format('Y-m-d') . '.xlsx';
 
         $tempFile = tempnam(sys_get_temp_dir(), 'excel');
         $writer->save($tempFile);

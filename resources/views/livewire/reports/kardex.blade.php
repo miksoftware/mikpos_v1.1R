@@ -5,8 +5,26 @@
             <h1 class="text-2xl font-bold text-slate-800">Kardex de Inventario</h1>
             <p class="text-slate-500 mt-1">Control y seguimiento del inventario de productos e ingredientes</p>
         </div>
-        @if(auth()->user()?->email === 'softwaremik@gmail.com')
-        <div class="flex items-center gap-3">
+        <div class="flex flex-wrap items-center gap-3">
+            @if(auth()->user()->hasPermission('reports.export'))
+            <a href="{{ route('reports.kardex.excel', [
+                'branch_id' => $selectedBranchId,
+                'category_id' => $selectedCategoryId,
+                'brand_id' => $selectedBrandId,
+                'item_type' => $itemTypeFilter,
+                'stock_filter' => $stockFilter,
+                'search' => $search,
+                'date_from' => $dateFrom,
+                'date_to' => $dateTo,
+            ]) }}" class="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition shadow-sm">
+                <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+                Exportar Excel
+            </a>
+            @endif
+
+            @if(auth()->user()?->email === 'softwaremik@gmail.com')
             <button wire:click="reconstructIngredientMovements" wire:loading.attr="disabled" class="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-800 text-white rounded-xl hover:bg-slate-700 transition-colors text-sm font-medium shadow-sm disabled:opacity-50" title="Reconstruye los movimientos de ventas históricas para los ingredientes">
                 <svg class="w-4 h-4 text-slate-300" wire:loading.remove wire:target="reconstructIngredientMovements" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
@@ -17,8 +35,8 @@
                 </svg>
                 <span>Reconstruir Trazabilidad Ingredientes</span>
             </button>
+            @endif
         </div>
-        @endif
     </div>
 
     {{-- Summary Cards --}}
@@ -494,22 +512,38 @@
                     {{-- Content --}}
                     <div class="px-6 py-4 max-h-[60vh] overflow-y-auto">
                         {{-- Date Filters for Movements --}}
-                        <div class="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-50 rounded-xl">
-                            <span class="text-sm font-medium text-slate-600">Filtrar movimientos:</span>
-                            <div class="flex items-center gap-2">
-                                <label class="text-sm text-slate-500">Desde:</label>
-                                <input wire:model.live="dateFrom" type="date" 
-                                    class="px-3 py-1.5 border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261] text-sm">
+                        <div class="flex flex-wrap items-center justify-between gap-4 mb-4 p-3 bg-slate-50 rounded-xl">
+                            <div class="flex flex-wrap items-center gap-4">
+                                <span class="text-sm font-medium text-slate-600">Filtrar movimientos:</span>
+                                <div class="flex items-center gap-2">
+                                    <label class="text-sm text-slate-500">Desde:</label>
+                                    <input wire:model.live="dateFrom" type="date" 
+                                        class="px-3 py-1.5 border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261] text-sm">
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <label class="text-sm text-slate-500">Hasta:</label>
+                                    <input wire:model.live="dateTo" type="date" 
+                                        class="px-3 py-1.5 border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261] text-sm">
+                                </div>
+                                @if($dateFrom || $dateTo)
+                                <button wire:click="$set('dateFrom', null); $set('dateTo', null)" class="text-sm text-slate-500 hover:text-slate-700">
+                                    Limpiar fechas
+                                </button>
+                                @endif
                             </div>
-                            <div class="flex items-center gap-2">
-                                <label class="text-sm text-slate-500">Hasta:</label>
-                                <input wire:model.live="dateTo" type="date" 
-                                    class="px-3 py-1.5 border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#ff7261]/50 focus:border-[#ff7261] text-sm">
-                            </div>
-                            @if($dateFrom || $dateTo)
-                            <button wire:click="$set('dateFrom', null); $set('dateTo', null)" class="text-sm text-slate-500 hover:text-slate-700">
-                                Limpiar fechas
-                            </button>
+
+                            @if(auth()->user()->hasPermission('reports.export') && $selectedItemId)
+                            <a href="{{ route('reports.kardex.excel', [
+                                'item_id' => $selectedItemId,
+                                'item_type_detail' => $selectedItemType,
+                                'date_from' => $dateFrom,
+                                'date_to' => $dateTo,
+                            ]) }}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 transition shadow-sm">
+                                <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                </svg>
+                                Exportar Movimientos
+                            </a>
                             @endif
                         </div>
 

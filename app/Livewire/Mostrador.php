@@ -728,7 +728,7 @@ class Mostrador extends Component
         if ($product->product_type === 'compuesto') {
             foreach ($product->ingredients as $ing) {
                 if ($ing->manage_inventory) {
-                    $this->deductIngredientStock($ing, (float) $ing->pivot->quantity, "Reserva de comanda (Ingrediente de: {$product->name}) – Mesa: {$this->selectedMesaName}");
+                    $this->deductIngredientStock($ing, (float) $ing->pivot->quantity, "Reserva de comanda (Ingrediente de: {$product->name}) – Mesa: {$this->selectedMesaName}", $ci);
                 }
             }
         }
@@ -738,7 +738,7 @@ class Mostrador extends Component
             foreach ($groupSelections as $groupId => $ingredientId) {
                 $selIng = Ingredient::find($ingredientId);
                 if ($selIng && $selIng->manage_inventory) {
-                    $this->deductIngredientStock($selIng, 1, "Reserva de comanda (Ingrediente opcional de: {$product->name}) – Mesa: {$this->selectedMesaName}");
+                    $this->deductIngredientStock($selIng, 1, "Reserva de comanda (Ingrediente opcional de: {$product->name}) – Mesa: {$this->selectedMesaName}", $ci);
                 }
             }
         }
@@ -832,7 +832,7 @@ class Mostrador extends Component
 
             // Descontar 1 unidad del ingrediente en tiempo real al agregar a la mesa
             if ($ingredient->manage_inventory) {
-                $this->deductIngredientStock($ingredient, 1, "Reserva de comanda – Mesa: {$this->selectedMesaName}");
+                $this->deductIngredientStock($ingredient, 1, "Reserva de comanda – Mesa: {$this->selectedMesaName}", $ci);
             }
         }
     }

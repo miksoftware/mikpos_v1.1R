@@ -49,26 +49,54 @@ class ReconstructIngredientMovements extends Command
 
                 $cuentaItemIds = CuentaItem::where('cuenta_id', $cuenta->id)->pluck('id')->toArray();
 
-                // Find reservation movements for this cuenta (matches VTA-* docs, Pre-descuento, Reserva, comanda notes)
-                $resMovements = InventoryMovement::where(function ($q) use ($cuentaItemIds) {
-                        if (!empty($cuentaItemIds)) {
-                            $q->where('reference_type', CuentaItem::class)
-                              ->whereIn('reference_id', $cuentaItemIds);
+                // Find ingredients actually present in this cuenta's items
+                $cuentaIngredients = [];
+                $cuentaItemsList = CuentaItem::where('cuenta_id', $cuenta->id)->get();
+                foreach ($cuentaItemsList as $cItem) {
+                    if ($cItem->ingredient_id) {
+                        $cuentaIngredients[] = $cItem->ingredient_id;
+                    }
+                    if ($cItem->product_id) {
+                        $prod = Product::with('ingredients')->find($cItem->product_id);
+                        if ($prod && $prod->product_type === 'compuesto') {
+                            foreach ($prod->ingredients as $ing) {
+                                $cuentaIngredients[] = $ing->id;
+                            }
                         }
-                    })
-                    ->orWhere(function ($q) use ($cuenta, $sale) {
-                        $q->where(function ($q2) {
-                              $q2->where('document_number', 'like', 'VTA-%')
-                                 ->orWhere('notes', 'like', '%comanda%')
-                                 ->orWhere('notes', 'like', '%Pre-descuento%')
-                                 ->orWhere('notes', 'like', '%Reserva%');
-                          })
-                          ->whereBetween('created_at', [
-                              \Carbon\Carbon::parse($cuenta->created_at)->subHours(12),
-                              \Carbon\Carbon::parse($sale->created_at)->addMinutes(30)
-                          ]);
-                    })
-                    ->get();
+                    }
+                }
+                $cuentaIngredients = array_unique(array_filter($cuentaIngredients));
+
+                // Find reservation movements ONLY for this cuenta's items or ingredients
+                $resMovements = InventoryMovement::where(function ($q) use ($cuentaItemIds, $cuenta, $sale, $cuentaIngredients) {
+                    if (!empty($cuentaItemIds)) {
+                        $q->where(function ($q1) use ($cuentaItemIds) {
+                            $q1->where('reference_type', CuentaItem::class)
+                               ->whereIn('reference_id', $cuentaItemIds);
+                        });
+                    }
+
+                    if (!empty($cuentaIngredients)) {
+                        $q->orWhere(function ($q2) use ($sale, $cuenta, $cuentaIngredients) {
+                            $q2->where(function ($qNull) {
+                                    $qNull->whereNull('reference_type')
+                                          ->orWhere('reference_type', '');
+                                })
+                               ->whereIn('ingredient_id', $cuentaIngredients)
+                               ->where('branch_id', $sale->branch_id)
+                               ->where(function ($q3) {
+                                   $q3->where('document_number', 'like', 'VTA-%')
+                                      ->orWhere('notes', 'like', '%comanda%')
+                                      ->orWhere('notes', 'like', '%Pre-descuento%')
+                                      ->orWhere('notes', 'like', '%Reserva%');
+                               })
+                               ->whereBetween('created_at', [
+                                   \Carbon\Carbon::parse($cuenta->created_at)->subMinutes(30),
+                                   \Carbon\Carbon::parse($sale->created_at)->addMinutes(10)
+                               ]);
+                        });
+                    }
+                })->get();
 
                 foreach ($resMovements as $m) {
                     $m->reference_type = Sale::class;
