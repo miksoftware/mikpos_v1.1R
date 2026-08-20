@@ -377,6 +377,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/', [App\Http\Controllers\LegacySaleController::class, 'index'])->name('index');
         Route::get('/subir', [App\Http\Controllers\LegacySaleController::class, 'showUploadForm'])->name('upload.form');
         Route::post('/subir', [App\Http\Controllers\LegacySaleController::class, 'upload'])->name('upload');
+        Route::get('/excel', [App\Http\Controllers\LegacySaleController::class, 'exportExcel'])->name('export');
         Route::get('/{id}', [App\Http\Controllers\LegacySaleController::class, 'show'])->name('show');
     });
 
