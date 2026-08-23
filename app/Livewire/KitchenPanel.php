@@ -3,6 +3,7 @@
 namespace App\Livewire;
 
 use App\Models\Branch;
+use App\Models\KitchenNotification;
 use App\Models\KitchenOrder;
 use App\Models\PreparationStation;
 use Illuminate\Support\Facades\DB;
@@ -76,6 +77,9 @@ class KitchenPanel extends Component
         $order->update(['status' => 'ready', 'ready_at' => now()]);
         $order->items()->update(['status' => 'ready']);
 
+        // Create notification for waiter / order creator
+        KitchenNotification::createForKitchenOrder($order, 'ready');
+
         $this->dispatch('notify', message: 'Comanda lista para entregar', type: 'success');
     }
 
@@ -86,6 +90,9 @@ class KitchenPanel extends Component
 
         $order->update(['status' => 'delivered', 'delivered_at' => now()]);
         $order->items()->update(['status' => 'delivered']);
+
+        // Create notification for waiter / order creator
+        KitchenNotification::createForKitchenOrder($order, 'delivered');
 
         $this->dispatch('notify', message: 'Comanda entregada', type: 'success');
     }

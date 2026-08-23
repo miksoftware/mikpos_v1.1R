@@ -2169,7 +2169,7 @@ class Mostrador extends Component
         $paymentMethods = collect();
 
         // ── Mesa grid ────────────────────────────────────────────────────────
-        $mesasQuery = Mesa::with(['sector', 'cuenta.items'])
+        $mesasQuery = Mesa::with(['sector', 'cuenta.items', 'cuenta.kitchenOrders.preparationStation'])
             ->where('is_active', true)
             ->orderBy('name');
 

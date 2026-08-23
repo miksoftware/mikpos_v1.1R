@@ -90,22 +90,30 @@
             $isOcupada = $mesa->status === 'ocupada';
             $itemCount = $isOcupada ? ($mesa->cuenta?->items->count() ?? 0) : 0;
             $cuentaTotal = $isOcupada ? ($mesa->cuenta ? $mesa->cuenta->getTotal() : 0) : 0;
+            $readyOrders = $isOcupada && $mesa->cuenta
+                ? $mesa->cuenta->kitchenOrders->where('status', 'ready')
+                : collect();
+            $hasReady = $readyOrders->isNotEmpty();
         @endphp
         <button wire:click="openMesa({{ $mesa->id }})"
             class="group relative flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border-2 transition-all duration-200 text-center shadow-sm hover:shadow-xl hover:-translate-y-0.5 overflow-hidden cursor-pointer
-                {{ $isOcupada
-                    ? 'bg-gradient-to-br from-red-50 to-rose-50 border-red-300 hover:border-red-400'
-                    : 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-300 hover:border-green-400' }}">
+                {{ $hasReady
+                    ? 'bg-gradient-to-br from-emerald-50 via-teal-50 to-green-50 border-emerald-400 ring-2 ring-emerald-300 shadow-md'
+                    : ($isOcupada
+                        ? 'bg-gradient-to-br from-red-50 to-rose-50 border-red-300 hover:border-red-400'
+                        : 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-300 hover:border-green-400') }}">
 
             {{-- Corner decoration --}}
             <div class="absolute top-0 right-0 w-14 h-14 opacity-30
-                {{ $isOcupada ? 'bg-red-300' : 'bg-green-300' }}"
+                {{ $hasReady ? 'bg-emerald-400' : ($isOcupada ? 'bg-red-300' : 'bg-green-300') }}"
                 style="clip-path: polygon(100% 0, 0 0, 100% 100%);"></div>
 
             {{-- Status icon --}}
             <div class="relative w-14 h-14 rounded-full flex items-center justify-center shadow-inner transform group-hover:scale-110 transition-transform
-                {{ $isOcupada ? 'bg-gradient-to-br from-red-100 to-red-200' : 'bg-gradient-to-br from-green-100 to-green-200' }}">
-                @if($isOcupada)
+                {{ $hasReady ? 'bg-gradient-to-br from-emerald-200 to-green-300' : ($isOcupada ? 'bg-gradient-to-br from-red-100 to-red-200' : 'bg-gradient-to-br from-green-100 to-green-200') }}">
+                @if($hasReady)
+                <span class="text-2xl animate-bounce">🍽️</span>
+                @elseif($isOcupada)
                 <svg class="w-7 h-7 text-red-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor">
                     <path d="M160-160q-33 0-56.5-23.5T80-240v-440h80v440h280v80H160Zm120-560q-33 0-56.5-23.5T200-800q0-33 23.5-56.5T280-880q33 0 56.5 23.5T360-800q0 33-23.5 56.5T280-720ZM480-80v-200H280q-33 0-56.5-23.5T200-360v-236q0-35 24-59.5t58-24.5q19 0 35.5 8t28.5 22q45 49 96.5 89.5T560-520h54q-25-17-39.5-42.5T560-620h241q0 32-14.5 57.5T747-520h133v80H720v360h-80v-360h-80q-53 0-107-23t-93-55v138h120q33 0 56.5 23.5T560-300v220h-80Z"/>
                 </svg>
@@ -125,7 +133,19 @@
             @endif
 
             {{-- Status badge --}}
-            @if($isOcupada)
+            @if($hasReady)
+            <div class="flex flex-col items-center gap-1 w-full">
+                <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-600 text-white shadow-sm animate-pulse">
+                    <span>✨</span>
+                    <span>¡Listo: {{ $readyOrders->map(fn($o) => $o->preparationStation?->name ?? 'Cocina')->unique()->join(', ') }}!</span>
+                </span>
+                @if($cuentaTotal > 0)
+                <span class="text-sm font-bold text-emerald-700">
+                    ${{ number_format($cuentaTotal, 2) }}
+                </span>
+                @endif
+            </div>
+            @elseif($isOcupada)
             <div class="flex flex-col items-center gap-0.5 w-full">
                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500 text-white">
                     <span class="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>

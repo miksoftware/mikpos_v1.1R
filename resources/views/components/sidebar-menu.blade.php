@@ -232,6 +232,7 @@
 @endif
 
 <!-- Creación Section -->
+@if (auth()->user()->hasPermission('products.view') || auth()->user()->hasPermission('customers.view') || auth()->user()->hasPermission('suppliers.view') || auth()->user()->hasPermission('combos.view') || auth()->user()->hasPermission('services.view') || auth()->user()->hasPermission('discounts.view') || auth()->user()->hasPermission('ingredients.view') || auth()->user()->hasPermission('preparation_stations.view') || auth()->user()->hasPermission('mesas.view'))
 @if($mobile)
 <div class="{{ $sectionClass }}">
     <p class="{{ $labelClass }}">Creación</p>
@@ -398,8 +399,10 @@
     </div>
 </div>
 @endif
+@endif
 
 <!-- Inventarios Section -->
+@if (auth()->user()->hasPermission('purchases.view') || auth()->user()->hasPermission('inventory_adjustments.view') || auth()->user()->hasPermission('inventory_transfers.view'))
 @if($mobile)
 <div class="{{ $sectionClass }}">
     <p class="{{ $labelClass }}">Inventarios</p>
@@ -469,6 +472,7 @@
         @endif
     </div>
 </div>
+@endif
 @endif
 
 <!-- Nómina Section -->

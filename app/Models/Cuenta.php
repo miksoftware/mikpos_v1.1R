@@ -52,6 +52,11 @@ class Cuenta extends Model
         return $this->hasMany(CuentaItem::class);
     }
 
+    public function kitchenOrders(): HasMany
+    {
+        return $this->hasMany(KitchenOrder::class);
+    }
+
     // Scopes
 
     public function scopeAbierta(Builder $query): Builder
