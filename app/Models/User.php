@@ -107,6 +107,27 @@ class User extends Authenticatable
         return false;
     }
 
+    // Check if user has a specific role or one of multiple roles
+    public function hasRole(string|array ...$roles): bool
+    {
+        $flattened = [];
+        foreach ($roles as $item) {
+            if (is_array($item)) {
+                $flattened = array_merge($flattened, $item);
+            } else {
+                $flattened[] = $item;
+            }
+        }
+
+        foreach ($this->roles as $role) {
+            if (in_array($role->name, $flattened, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     // Check if user is super admin
     public function isSuperAdmin(): bool
     {
