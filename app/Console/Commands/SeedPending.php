@@ -60,6 +60,7 @@ class SeedPending extends Command
         'CustomerSalesReportPermissionSeeder',
         'SalesViewOwnPermissionSeeder',
         'KitchenOrdersModuleSeeder',
+        'CookRoleSeeder',
         // Add new seeders here
     ];
 

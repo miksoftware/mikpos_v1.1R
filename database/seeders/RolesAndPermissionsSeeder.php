@@ -364,6 +364,13 @@ class RolesAndPermissionsSeeder extends Seeder
             'is_system' => true,
         ]);
 
+        $cook = Role::create([
+            'name' => 'cook',
+            'display_name' => 'Cocinero',
+            'description' => 'Acceso exclusivo al panel de comandas/cocina de su área asignada',
+            'is_system' => true,
+        ]);
+
         // Assign all permissions to super_admin
         $allPermissions = Permission::pluck('id');
         $superAdmin->permissions()->attach($allPermissions);
@@ -391,5 +398,13 @@ class RolesAndPermissionsSeeder extends Seeder
             'pos.access', 'pos.sell',
         ])->pluck('id');
         $cashier->permissions()->attach($cashierPermissions);
+
+        // Assign permissions to cook (kitchen panel)
+        $cookPermissions = Permission::whereIn('name', [
+            'kitchen_panel.view',
+        ])->pluck('id');
+        if ($cookPermissions->isNotEmpty()) {
+            $cook->permissions()->attach($cookPermissions);
+        }
     }
 }

@@ -61,11 +61,18 @@ class KitchenOrdersModuleSeeder extends Seeder
             $cashier->permissions()->syncWithoutDetaching($sendView);
         }
 
-        // Kitchen/bar staff role is not predefined; admins assign the permission
-        // `kitchen_panel.view` directly to whichever user they want to give access.
-        // We still grant the permission to branch_admin and supervisor so they
-        // can also review their team panel if needed.
-        foreach (['super_admin', 'branch_admin', 'supervisor'] as $roleName) {
+        // Cook role gets kitchen_panel.view
+        $cook = Role::firstOrCreate(
+            ['name' => 'cook'],
+            [
+                'display_name' => 'Cocinero',
+                'description'  => 'Acceso exclusivo al panel de comandas/cocina de su área asignada',
+                'is_system'    => true,
+                'is_active'    => true,
+            ]
+        );
+
+        foreach (['super_admin', 'branch_admin', 'supervisor', 'cook'] as $roleName) {
             $role = Role::where('name', $roleName)->first();
             $panelPerm = Permission::where('name', 'kitchen_panel.view')->first();
             if ($role && $panelPerm) {

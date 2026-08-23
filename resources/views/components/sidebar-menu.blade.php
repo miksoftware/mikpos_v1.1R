@@ -14,6 +14,7 @@
 @endphp
 
 <!-- Dashboard -->
+@if (auth()->user()->hasPermission('dashboard.view'))
 <a href="{{ route('dashboard') }}" @if($mobile) @click="mobileMenuOpen = false" @endif
     class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group {{ request()->routeIs('dashboard') ? 'bg-gradient-to-r from-[#ff7261]/20 to-[#a855f7]/20 text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white' }}">
     <svg class="w-5 h-5 flex-shrink-0 {{ request()->routeIs('dashboard') ? 'text-[#ff7261]' : 'group-hover:text-[#ff7261]' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -21,6 +22,7 @@
     </svg>
     <span @if(!$mobile) x-show="sidebarOpen" @endif class="font-medium">Dashboard</span>
 </a>
+@endif
 
 
 <!-- Mostrador -->
@@ -138,6 +140,7 @@
 @endif
 
 <!-- Ventas Históricas -->
+@if (auth()->user()->hasPermission('sales.view'))
 @if($mobile)
 <div class="{{ $sectionClass }}">
     <a href="{{ route('legacy_sales.index') }}" @click="mobileMenuOpen = false"
@@ -156,6 +159,7 @@
     </svg>
     <span x-show="sidebarOpen" class="font-medium">Ventas Históricas</span>
 </a>
+@endif
 @endif
 
 <!-- Pedidos Tienda -->
@@ -748,26 +752,33 @@
 
 <!-- Administración Section -->
 @if($mobile)
+@if (auth()->user()->hasPermission('users.view') || auth()->user()->hasPermission('branches.view') || auth()->user()->hasPermission('roles.view') || auth()->user()->hasPermission('activity_logs.view') || auth()->user()->hasPermission('billing_settings.view') || auth()->user()->hasPermission('migration.view'))
 <div class="{{ $sectionClass }}">
     <p class="{{ $labelClass }}">Administración</p>
+    @if (auth()->user()->hasPermission('users.view'))
     <a href="{{ route('users') }}" @click="mobileMenuOpen = false" class="{{ $linkClass }} {{ request()->routeIs('users') ? $activeClass : $inactiveClass }}">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
         </svg>
         <span>Usuarios</span>
     </a>
+    @endif
+    @if (auth()->user()->hasPermission('branches.view'))
     <a href="{{ route('branches') }}" @click="mobileMenuOpen = false" class="{{ $linkClass }} {{ request()->routeIs('branches') ? $activeClass : $inactiveClass }}">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
         </svg>
         <span>Sucursales</span>
     </a>
+    @endif
+    @if (auth()->user()->hasPermission('roles.view'))
     <a href="{{ route('roles') }}" @click="mobileMenuOpen = false" class="{{ $linkClass }} {{ request()->routeIs('roles') ? $activeClass : $inactiveClass }}">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
         </svg>
         <span>Roles</span>
     </a>
+    @endif
     @if (auth()->user()->hasPermission('activity_logs.view'))
     <a href="{{ route('activity-logs') }}" @click="mobileMenuOpen = false" class="{{ $linkClass }} {{ request()->routeIs('activity-logs') ? $activeClass : $inactiveClass }}">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -793,8 +804,10 @@
     </a>
     @endif
 </div>
+@endif
 
 <!-- Configuración Section (Mobile) -->
+@if (auth()->user()->hasPermission('departments.view') || auth()->user()->hasPermission('municipalities.view') || auth()->user()->hasPermission('tax_documents.view') || auth()->user()->hasPermission('currencies.view') || auth()->user()->hasPermission('payment_methods.view') || auth()->user()->hasPermission('taxes.view') || auth()->user()->hasPermission('system_documents.view') || auth()->user()->hasPermission('product_field_config.view') || auth()->user()->hasPermission('print_formats.view') || auth()->user()->hasPermission('categories.view') || auth()->user()->hasPermission('subcategories.view') || auth()->user()->hasPermission('brands.view') || auth()->user()->hasPermission('units.view') || auth()->user()->hasPermission('product_models.view') || auth()->user()->hasPermission('presentations.view') || auth()->user()->hasPermission('colors.view') || auth()->user()->hasPermission('imeis.view'))
 <div class="{{ $sectionClass }}">
     <p class="{{ $labelClass }}">Configuración</p>
     <a href="{{ route('departments') }}" @click="mobileMenuOpen = false" class="{{ $linkClass }} {{ request()->routeIs('departments') ? $activeClass : $inactiveClass }}">
@@ -910,9 +923,11 @@
         <span>IMEIs</span>
     </a>
 </div>
+@endif
 
 @else
 <!-- Administración Section (Desktop) -->
+@if (auth()->user()->hasPermission('users.view') || auth()->user()->hasPermission('branches.view') || auth()->user()->hasPermission('roles.view') || auth()->user()->hasPermission('activity_logs.view') || auth()->user()->hasPermission('billing_settings.view') || auth()->user()->hasPermission('migration.view') || auth()->user()->hasPermission('departments.view') || auth()->user()->hasPermission('municipalities.view') || auth()->user()->hasPermission('tax_documents.view') || auth()->user()->hasPermission('currencies.view') || auth()->user()->hasPermission('payment_methods.view') || auth()->user()->hasPermission('taxes.view') || auth()->user()->hasPermission('system_documents.view') || auth()->user()->hasPermission('product_field_config.view') || auth()->user()->hasPermission('print_formats.view') || auth()->user()->hasPermission('categories.view') || auth()->user()->hasPermission('subcategories.view') || auth()->user()->hasPermission('brands.view') || auth()->user()->hasPermission('units.view') || auth()->user()->hasPermission('product_models.view') || auth()->user()->hasPermission('presentations.view') || auth()->user()->hasPermission('colors.view') || auth()->user()->hasPermission('imeis.view'))
 <div x-data="{ adminOpen: {{ request()->routeIs('users') || request()->routeIs('branches') || request()->routeIs('roles') || request()->routeIs('activity-logs') || request()->routeIs('migration') || request()->routeIs('departments') || request()->routeIs('municipalities') || request()->routeIs('tax-documents') || request()->routeIs('currencies') || request()->routeIs('payment-methods') || request()->routeIs('taxes') || request()->routeIs('system-documents') || request()->routeIs('categories') || request()->routeIs('subcategories') || request()->routeIs('brands') || request()->routeIs('units') || request()->routeIs('product-models') || request()->routeIs('presentations') || request()->routeIs('colors') || request()->routeIs('imeis') || request()->routeIs('product-field-config') || request()->routeIs('billing-settings') || request()->routeIs('print-formats') ? 'true' : 'false' }}, configOpen: {{ request()->routeIs('departments') || request()->routeIs('municipalities') || request()->routeIs('tax-documents') || request()->routeIs('currencies') || request()->routeIs('payment-methods') || request()->routeIs('taxes') || request()->routeIs('system-documents') || request()->routeIs('product-field-config') || request()->routeIs('billing-settings') || request()->routeIs('print-formats') ? 'true' : 'false' }}, productsOpen: {{ request()->routeIs('categories') || request()->routeIs('subcategories') || request()->routeIs('brands') || request()->routeIs('units') || request()->routeIs('product-models') || request()->routeIs('presentations') || request()->routeIs('colors') || request()->routeIs('imeis') ? 'true' : 'false' }} }">
     <button @click="adminOpen = !adminOpen"
         class="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group text-slate-400 hover:bg-white/5 hover:text-white">
@@ -929,24 +944,30 @@
     </button>
 
     <div x-show="adminOpen && sidebarOpen" x-collapse class="{{ $sectionClass }}">
+        @if (auth()->user()->hasPermission('users.view'))
         <a href="{{ route('users') }}" class="{{ $linkClass }} {{ request()->routeIs('users') ? $activeClass : $inactiveClass }}">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
             </svg>
             <span class="text-sm">Usuarios</span>
         </a>
+        @endif
+        @if (auth()->user()->hasPermission('branches.view'))
         <a href="{{ route('branches') }}" class="{{ $linkClass }} {{ request()->routeIs('branches') ? $activeClass : $inactiveClass }}">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
             </svg>
             <span class="text-sm">Sucursales</span>
         </a>
+        @endif
+        @if (auth()->user()->hasPermission('roles.view'))
         <a href="{{ route('roles') }}" class="{{ $linkClass }} {{ request()->routeIs('roles') ? $activeClass : $inactiveClass }}">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
             </svg>
             <span class="text-sm">Roles</span>
         </a>
+        @endif
         @if (auth()->user()->hasPermission('activity_logs.view'))
         <a href="{{ route('activity-logs') }}" class="{{ $linkClass }} {{ request()->routeIs('activity-logs') ? $activeClass : $inactiveClass }}">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1120,4 +1141,5 @@
         </div>
     </div>
 </div>
+@endif
 @endif
